@@ -2,15 +2,18 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    "esModuleInterop": true,
     "paths": {
       "@/*": [
-        "./*"
+        "../VirtualMe/*"
       ]
     }
   },
   "include": [
-    "**/*.ts",
-    "**/*.tsx",
+    "../VirtualMe/**/*.ts",
+    "../VirtualMe/**/*.tsx",
+    "../VirtualMe/.expo/types/**/*.ts",
+    "../VirtualMe/expo-env.d.ts",
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
   ]

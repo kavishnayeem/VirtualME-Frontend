@@ -4,19 +4,29 @@
     "slug": "VirtualMe",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
     "scheme": "virtualme",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.anonymous.VirtualMe",
+      "infoPlist": {
+        "NSSpeechRecognitionUsageDescription": "Allow VirtualMe to transcribe your voice into captions.",
+        "NSMicrophoneUsageDescription": "Allow VirtualMe to access your microphone to visualize and transcribe voice."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "permissions": [
+        "RECORD_AUDIO",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
+      ],
+      "edgeToEdgeEnabled": true,
+      "package": "com.anonymous.VirtualMe-Frontend"
     },
     "web": {
       "bundler": "metro",
@@ -33,10 +43,33 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone to visualize and transcribe voice."
+        }
+      ],
+      [
+        "react-native-permissions",
+        {
+          "iosPermissions": [
+            "Microphone"
+          ],
+          "androidPermissions": [
+            "RECORD_AUDIO"
+          ]
+        }
       ]
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "d55778ed-f4f9-461b-93c4-c5f669bbec06"
+      }
     }
   }
 }

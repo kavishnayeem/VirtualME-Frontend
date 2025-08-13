@@ -1,5 +1,5 @@
-import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import { BlurView } from 'expo-blur';
+import { useBottomTabBarHeight } from '@/node_modules/VirtualMe/node_modules/@react-navigation/bottom-tabs/src';
+import { BlurView } from 'expo-blur/src';
 import { StyleSheet } from 'react-native';
 
 export default function BlurTabBarBackground() {
