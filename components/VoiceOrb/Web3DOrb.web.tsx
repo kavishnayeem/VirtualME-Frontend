@@ -4,6 +4,8 @@ import { createNoise3D } from 'simplex-noise';
 
 type Props = { intensity?: number };
 
+const ORB_RADIUS = 7; // Keep orb radius constant
+
 const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
   const [isListening, setIsListening] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
@@ -87,7 +89,8 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     rendererRef.current = renderer;
 
-    const icosahedronGeometry = new THREE.IcosahedronGeometry(5, 8);
+    const icosahedronGeometry = new THREE.IcosahedronGeometry(ORB_RADIUS, 11);
+    // Default color is white, not red
     const lambertMaterial = new THREE.MeshLambertMaterial({
       color: 0xffffff,
       wireframe: true,
@@ -122,7 +125,7 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
 
     const renderLoop = () => {
       if (!groupRef.current || !rendererRef.current || !sceneRef.current || !cameraRef.current) return;
-      groupRef.current.rotation.y += 0.005;
+      groupRef.current.rotation.y += 0.003;
       rendererRef.current.render(sceneRef.current, cameraRef.current);
       animationFrameRef.current = requestAnimationFrame(renderLoop);
     };
@@ -144,31 +147,42 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
     };
   }, []);
 
+  // Always morph around the same base radius, regardless of listening state
   useEffect(() => {
-    if (isListening && ballRef.current) {
-      updateBallMorph(ballRef.current, currentVolume, intensity, noise);
-    } else if (!isListening && ballRef.current && originalPositionsRef.current) {
-      resetBallMorph(ballRef.current, originalPositionsRef.current);
+    if (ballRef.current && originalPositionsRef.current) {
+      updateBallMorph(
+        ballRef.current,
+        isListening ? currentVolume : 0,
+        intensity,
+        noise,
+        originalPositionsRef.current,
+        isListening
+      );
     }
   }, [currentVolume, isListening, intensity, noise]);
 
+  // Morph the orb, always using the original positions as base, and always keeping the same average radius
   const updateBallMorph = (
     mesh: THREE.Mesh,
     volume: number,
     intens: number,
-    noise3D: ReturnType<typeof createNoise3D>
+    noise3D: ReturnType<typeof createNoise3D>,
+    original: Float32Array,
+    listening: boolean
   ) => {
     const geometry = mesh.geometry as THREE.IcosahedronGeometry;
     const positionAttribute = (geometry as any).getAttribute('position') as THREE.BufferAttribute;
 
     for (let i = 0; i < positionAttribute.count; i++) {
-      const vertex = new THREE.Vector3(
-        positionAttribute.getX(i),
-        positionAttribute.getY(i),
-        positionAttribute.getZ(i)
-      );
+      // Always use the original base position for morphing
+      const baseX = original[i * 3];
+      const baseY = original[i * 3 + 1];
+      const baseZ = original[i * 3 + 2];
 
-      const offset = 5;
+      const vertex = new THREE.Vector3(baseX, baseY, baseZ);
+
+      // The base offset is the original radius, so the orb never shrinks
+      const offset = ORB_RADIUS;
       const amp = 2.5 * intens;
       const time = performance.now();
       vertex.normalize();
@@ -186,10 +200,16 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
     positionAttribute.needsUpdate = true;
     geometry.computeVertexNormals();
 
-    const color = new THREE.Color(`hsl(${volume * 120}, 100%, 50%)`);
+    // Set color: red when listening, otherwise white
+    if (listening) {
+      const color = new THREE.Color(`hsl(${volume * 120}, 100%, 50%)`);
     (mesh.material as THREE.MeshLambertMaterial).color = color;
+    } else {
+      (mesh.material as THREE.MeshLambertMaterial).color.set(0xffffff);
+    }
   };
 
+  // No need to reset to a smaller orb, just restore the original geometry and color
   const resetBallMorph = (mesh: THREE.Mesh, original: Float32Array) => {
     const geometry = mesh.geometry as THREE.IcosahedronGeometry;
     const positionAttribute = (geometry as any).getAttribute('position') as THREE.BufferAttribute;
@@ -235,5 +255,3 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
 };
 
 export default Web3DOrb;
-
-
