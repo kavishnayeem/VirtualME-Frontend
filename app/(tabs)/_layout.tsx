@@ -13,18 +13,14 @@ export default function TabLayout() {
 
   return (
     <Tabs
-      // keep screens mounted in the view hierarchy
       detachInactiveScreens={false}
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
-
-        // ✅ valid for Tabs
-        lazy: false,           // mount all tabs up front (no on-demand mount)
-        freezeOnBlur: true,    // pause rendering when not focused
-
+        lazy: false,
+        freezeOnBlur: true,
         tabBarStyle: Platform.select({
           ios: { position: 'absolute' },
           default: {},
@@ -36,21 +32,16 @@ export default function TabLayout() {
         options={{
           title: 'Home',
           tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
-          // (optionally) you can repeat per-screen:
-          // lazy: false,
-          // freezeOnBlur: true,
         }}
       />
       <Tabs.Screen
-        name="explore"
+        name="menu/index"
         options={{
-          title: 'Voice',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="waveform" color={color} />,
-          // lazy: false,
-          // freezeOnBlur: true,
+          title: 'Menu',
+          // Use a different icon that exists, e.g. "person.crop.circle"
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="chevron.right" color={color} />,
         }}
       />
     </Tabs>
   );
 }
-

@@ -21,7 +21,7 @@ export default function HomeScreen() {
         <VirtualMeLogo />
       </ThemedView>
       <ThemedText style={styles.infoText}>
-        Tap <ThemedText style={styles.voiceTabText}>Voice</ThemedText> tab to try the voice orb.
+        Tap <ThemedText style={styles.voiceTabText}>Voice</ThemedText> tab to try the voice orb in menu.
       </ThemedText>
     </ParallaxScrollView>
   );

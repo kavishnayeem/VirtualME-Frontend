@@ -337,7 +337,11 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
     cameraRef.current = camera;
     groupRef.current = group;
 
-    const icosahedronGeometry = new THREE.IcosahedronGeometry(5, 8);
+    // The size of the mesh orb is defined here:
+    // The first argument to THREE.IcosahedronGeometry is the radius of the orb.
+    // In this case, the radius is 5.
+    const icosahedronGeometry = new THREE.IcosahedronGeometry(7, 12);
+    //                ^--- orb size (radius = 5)
     const lambertMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, wireframe: true });
     const ball = new THREE.Mesh(icosahedronGeometry, lambertMaterial);
     ball.position.set(0, 0, 0);
