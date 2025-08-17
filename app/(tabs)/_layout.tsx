@@ -16,14 +16,14 @@ export default function TabLayout() {
       detachInactiveScreens={false}
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+        tabBarActiveTintColor: Colors['dark'].tint,
         tabBarButton: HapticTab,
         tabBarBackground: TabBarBackground,
         lazy: false,
         freezeOnBlur: true,
         tabBarStyle: Platform.select({
-          ios: { position: 'absolute' },
-          default: {},
+          ios: { position: 'absolute', backgroundColor: 'black' },
+          default: { backgroundColor: 'black' },
         }),
       }}
     >

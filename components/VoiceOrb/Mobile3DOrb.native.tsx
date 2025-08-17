@@ -1,14 +1,6 @@
-// Mobile3DOrb.native.tsx
-// Deps:
-//   npx expo install expo-gl expo-three three
-//   npm i simplex-noise react-native-audio-record base64-js
-//   npm i expo-audio
-//
-// iOS: uses expo-audio metering (Dev Client or recent Expo Go).
-// Android: uses react-native-audio-record (requires Dev Client).
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Pressable, Text, StyleSheet, LayoutChangeEvent, Platform } from 'react-native';
+import { View, Text, StyleSheet, LayoutChangeEvent, Platform } from 'react-native';
 import { GLView } from 'expo-gl/src';
 import { Renderer } from 'expo-three/src';
 import * as THREE from 'three';
@@ -17,16 +9,7 @@ import { createNoise3D } from 'simplex-noise';
 import { useAudioRecorder, RecordingPresets, setAudioModeAsync, AudioModule } from 'expo-audio/src';
 import AudioRecord from 'react-native-audio-record';
 import { toByteArray } from 'base64-js';
-import { useFocusEffect, useIsFocused } from '@react-navigation/native';
-// --- Speech-to-text (caption) support (required for this feature) ---
-let Voice: any = null;
-try {
-  // Only works in Dev Client (not Expo Go). Safe to ignore if not installed.
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
-  Voice = require('@react-native-voice/voice');
-} catch {
-  Voice = null;
-}
+import { useFocusEffect } from '@react-navigation/native';
 
 export type Mobile3DOrbProps = { intensity?: number };
 
@@ -57,23 +40,19 @@ const int16Rms01 = (samples: Int16Array) => {
   return Math.min(1, rms * 2.5);
 };
 
-// --- Captions state ---
-type CaptionState = { text: string; visible: boolean; lastSpoken: number };
-const CAPTION_HIDE_DELAY = 2000; // ms after last update to hide
+// --- Orb geometry constants ---
+const ORB_RADIUS = 7;
+const ORB_DETAIL = 12; // 12 is not a valid detail value for THREE.IcosahedronGeometry, must be 0,1,2,3,4...
 
 const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
+  // Always listening when this screen is focused
   const [isListening, setIsListening] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
-  // Only keep the latest recognized text, always visible at the bottom when listening
-  const [captionText, setCaptionText] = useState<string>('');
-
-  const isFocused = useIsFocused();
 
   // guards to avoid duplicate starts/stops
-  const activeRef = useRef(false);                           // mic/STT currently running?
+  const activeRef = useRef(false);                           // mic currently running?
   const audioInitedRef = useRef(false);                      // AudioRecord.init called?
   const dataHandlerRef = useRef<((b64: string) => void) | null>(null); // Android PCM listener attached?
-  const voiceAttachedRef = useRef(false);                    // Voice listeners attached?
 
   // three/expo-gl refs
   const glRef = useRef<any>(null);
@@ -87,6 +66,8 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
 
   // shared volume for render loop (exact feed like web)
   const volumeRef = useRef(0);
+  // Add a smoothed volume for animation (to match web)
+  const smoothedVolumeRef = useRef(0);
 
   // noise
   const noise3D = useMemo(() => createNoise3D(), []);
@@ -100,60 +81,6 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
       if (typeof db === 'number') volumeRef.current = dbToLinear(db); // no smoothing, match web
     }
   );
-
-  // --- Speech-to-text (caption) listeners (attach once) ---
-  useEffect(() => {
-    if (!Voice || voiceAttachedRef.current) return;
-
-    Voice.onSpeechResults = (e: any) => {
-      if (e?.value?.length) setCaptionText(e.value[0]);
-    };
-    Voice.onSpeechPartialResults = (e: any) => {
-      if (e?.value?.length) setCaptionText(e.value[0]);
-    };
-    Voice.onSpeechError = (e: any) => {
-      setMicError('Speech recognition error: ' + (e?.error?.message || JSON.stringify(e)));
-    };
-
-    voiceAttachedRef.current = true;
-    return () => {
-      try { Voice?.destroy(); } catch {}
-      try { Voice?.removeAllListeners?.(); } catch {}
-      voiceAttachedRef.current = false;
-    };
-  }, []);
-
-  // Clear caption text when not listening
-  useEffect(() => {
-    if (!isListening) setCaptionText('');
-  }, [isListening]);
-
-  const startSpeechToText = useCallback(async () => {
-    if (!Voice) return;
-    try {
-      // iOS permission if available
-      if (Platform.OS === 'ios' && typeof Voice.requestAuthorization === 'function') {
-        const auth = await Voice.requestAuthorization();
-        if (auth !== 'authorized') return;
-      }
-      await Voice.start('en-US', {
-        EXTRA_PARTIAL_RESULTS: true,
-        EXTRA_MAX_RESULTS: 3,
-        EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS: 600,
-        EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS: 600,
-      } as any);
-      setCaptionText('');
-    } catch (e: any) {
-      setMicError('Speech recognition error: ' + (e?.message || String(e)));
-    }
-  }, []);
-
-  const stopSpeechToText = useCallback(async () => {
-    if (!Voice) return;
-    try { await Voice.stop(); } catch {}
-    try { await Voice.destroy(); } catch {}
-    setCaptionText('');
-  }, []);
 
   const onLayoutSquare = useCallback((e: LayoutChangeEvent) => {
     const { width } = e.nativeEvent.layout;
@@ -223,6 +150,7 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
       }
     } finally {
       volumeRef.current = 0;
+      smoothedVolumeRef.current = 0;
     }
   }, [recorder]);
 
@@ -230,49 +158,47 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
   const startAll = useCallback(async () => {
     if (activeRef.current) return;     // ❗ prevent double-start
     activeRef.current = true;
-    setCaptionText('');
 
     try {
       await startMetering();
-      // start STT if available (required)
-      await startSpeechToText();
     } catch {
       activeRef.current = false;
     }
-  }, [startMetering, startSpeechToText]);
+  }, [startMetering]);
 
   const stopAll = useCallback(async () => {
     if (!activeRef.current) return;    // ❗ prevent double-stop
     activeRef.current = false;
 
-    await stopSpeechToText();
     await stopMetering();
-  }, [stopMetering, stopSpeechToText]);
+  }, [stopMetering]);
 
   // Start/stop when THIS SCREEN gains/loses focus
   useFocusEffect(
     useCallback(() => {
-      // on focus
-      if (isListening) void startAll();
+      // on focus, always listen
+      setIsListening(true);
+      void startAll();
 
       return () => {
         // on blur
+        setIsListening(false);
         if (activeRef.current) void stopAll();
       };
-    }, [isListening, startAll, stopAll])
+    }, [startAll, stopAll])
   );
 
-  // Also react when the user taps the toggle while focused
+  // If micError occurs, stop listening
   useEffect(() => {
-    if (!isFocused) return;
-    if (isListening) void startAll();
-    else void stopAll();
-  }, [isListening, isFocused, startAll, stopAll]);
+    if (micError) setIsListening(false);
+  }, [micError]);
 
   // ---------------- RENDERING ----------------
   const updateBallMorph = useCallback(
     (mesh: THREE.Mesh, volume: number, original: Float32Array | null) => {
+      // Increase the size of the orb by scaling the geometry
       const geometry = mesh.geometry as THREE.IcosahedronGeometry;
+      mesh.scale.set(1.3, 1.3, 1.3); // scale up the orb by 30%
       const positionAttribute = (geometry as any).getAttribute('position') as THREE.BufferAttribute;
 
       for (let i = 0; i < positionAttribute.count; i++) {
@@ -288,7 +214,7 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
         vertex.normalize();
         const rf = 0.00001;
 
-        // EXACT same as web: no baseline, no smoothing
+        // Use smoothed volume for animation (to match web)
         const v = volume;
         const distance =
           offset +
@@ -309,7 +235,7 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
   );
 
   const resetBallMorph = useCallback((mesh: THREE.Mesh, original: Float32Array) => {
-    const geometry = mesh.geometry as THREE.IcosahedronGeometry;
+    const geometry = new THREE.IcosahedronGeometry(ORB_RADIUS, ORB_DETAIL);
     const positionAttribute = (geometry as any).getAttribute('position') as THREE.BufferAttribute;
     for (let i = 0; i < positionAttribute.count; i++) {
       positionAttribute.setXYZ(i, original[i * 3], original[i * 3 + 1], original[i * 3 + 2]);
@@ -337,11 +263,10 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
     cameraRef.current = camera;
     groupRef.current = group;
 
-    // The size of the mesh orb is defined here:
-    // The first argument to THREE.IcosahedronGeometry is the radius of the orb.
-    // In this case, the radius is 5.
-    const icosahedronGeometry = new THREE.IcosahedronGeometry(7, 12);
-    //                ^--- orb size (radius = 5)
+    // Use correct orb size and detail
+    // THREE.IcosahedronGeometry(radius, detail) where detail is typically 0-4
+    const icosahedronGeometry = new THREE.IcosahedronGeometry(ORB_RADIUS, ORB_DETAIL);
+    //                ^--- orb size (radius = 7, detail = 2)
     const lambertMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, wireframe: true });
     const ball = new THREE.Mesh(icosahedronGeometry, lambertMaterial);
     ball.position.set(0, 0, 0);
@@ -362,11 +287,24 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
     const render = () => {
       if (!rendererRef.current || !sceneRef.current || !cameraRef.current) return;
 
-      if (groupRef.current) groupRef.current.rotation.y += 0.010;
+      if (groupRef.current) groupRef.current.rotation.y += 0.040;
+
+      // --- Smoothing logic for volume (to match web) ---
+      // Use a simple attack/release smoothing
+      const attack = 1; // lower = faster attack
+      const release = 0.5; // lower = faster release
+      const raw = volumeRef.current;
+      let smoothed = smoothedVolumeRef.current;
+      if (raw > smoothed) {
+        smoothed = smoothed + (raw - smoothed) * attack;
+      } else {
+        smoothed = smoothed + (raw - smoothed) * release;
+      }
+      smoothedVolumeRef.current = smoothed;
 
       if (ballRef.current) {
         if (isListening && activeRef.current) {
-          updateBallMorph(ballRef.current, volumeRef.current, originalPositionsRef.current);
+          updateBallMorph(ballRef.current, smoothed, originalPositionsRef.current);
         } else if (originalPositionsRef.current) {
           resetBallMorph(ballRef.current, originalPositionsRef.current);
         }
@@ -401,22 +339,14 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
 
   return (
     <View style={styles.container}>
-      <Pressable onPress={() => setIsListening((v) => !v)} style={styles.pressable}>
+      <View style={styles.pressable}>
         <GLView style={styles.gl} onLayout={onLayoutSquare} onContextCreate={onContextCreate} />
         <View style={styles.badge}>
           <Text style={styles.badgeText}>
-            {isListening ? 'Listening… (tap to stop)' : 'Tap to start mic'}
+            {isListening ? 'Listening…' : micError ? 'Mic error' : ''}
           </Text>
         </View>
-      </Pressable>
-      {/* Always show the caption at the bottom of the orb when listening */}
-      {isListening && !!captionText && (
-        <View style={styles.captionBoxBottom}>
-          <Text style={styles.captionText} numberOfLines={2} ellipsizeMode="tail">
-            {captionText}
-          </Text>
-        </View>
-      )}
+      </View>
       {micError ? (
         <View style={styles.errorBox}>
           <Text style={styles.errorText}>{micError}</Text>
@@ -444,21 +374,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   badgeText: { color: 'white', fontSize: 14 },
-  // New style for caption at the bottom of the orb
-  captionBoxBottom: {
-    position: 'absolute',
-    left: 10,
-    right: 10,
-    bottom: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: 'rgba(0,0,0,0.65)',
-    borderRadius: 12,
-    alignItems: 'center',
-    zIndex: 10,
-    maxWidth: 500,
-  },
-  captionText: { color: 'white', fontSize: 16, fontWeight: '600', textAlign: 'center' },
   errorBox: {
     marginTop: 8,
     padding: 8,

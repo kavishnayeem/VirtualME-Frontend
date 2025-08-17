@@ -28,7 +28,7 @@
         <key>CFBundleURLSchemes</key>
         <array>
           <string>virtualme</string>
-          <string>com.anonymous.VirtualMe</string>
+          <string>com.anonymous.virtualme</string>
         </array>
       </dict>
       <dict>

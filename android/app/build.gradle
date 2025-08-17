@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.anonymous.VirtualMe'
+    namespace 'com.anonymous.virtualme'
     defaultConfig {
-        applicationId 'com.anonymous.VirtualMe'
+        applicationId 'com.anonymous.virtualme'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

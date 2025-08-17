@@ -8,7 +8,7 @@ import { ThemedView } from '../../../components/ThemedView';
 const R = {
   settings: '/settings',
   voiceChat: '/voice-chat',
-  voiceClone: '/voice-clone',
+  voiceClone: '/VoiceClone',
   profile: '/profile',
 } as const satisfies Record<string, Href>; // ✅ forces correct type
 
@@ -26,17 +26,18 @@ export default function MenuScreen() {
     <ThemedView style={styles.container}>
       <ThemedText type="title" style={styles.title}>Menu</ThemedText>
       <View style={styles.list}>
-        <Item title="Settings"    subtitle="App preferences" to={R.settings} />
+        <Item title="Profile"     subtitle="Your account" to={R.profile} />
         <Item title="Voice Chat"  subtitle="Talk to the orb" to={R.voiceChat} />
         <Item title="Voice Clone" subtitle="Create your voice" to={R.voiceClone} />
-        <Item title="Profile"     subtitle="Your account" to={R.profile} />
+        
+        <Item title="Settings"    subtitle="App preferences" to={R.settings} />
       </View>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, gap: 12 },
+  container: { flex: 1, padding: 20, gap: 12},
   title: { textAlign: 'center', marginTop: 16, marginBottom: 12 },
   list: { gap: 12 },
   item: { padding: 16, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(127,127,127,0.3)' },

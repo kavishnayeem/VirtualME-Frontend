@@ -1,4 +1,4 @@
-package com.anonymous.VirtualMe
+package com.anonymous.virtualme
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

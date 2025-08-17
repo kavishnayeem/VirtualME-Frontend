@@ -1,20 +1,22 @@
 {
   "expo": {
     "name": "VirtualMe",
-    "slug": "VirtualMe",
+    "slug": "virtualme",
     "version": "1.0.0",
     "orientation": "portrait",
     "scheme": "virtualme",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.VirtualMe",
+      "bundleIdentifier": "com.anonymous.virtualme",   
       "infoPlist": {
         "NSSpeechRecognitionUsageDescription": "Allow VirtualMe to transcribe your voice into captions.",
         "NSMicrophoneUsageDescription": "Allow VirtualMe to access your microphone to visualize and transcribe voice."
       }
     },
+
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
@@ -22,17 +24,18 @@
       },
       "permissions": [
         "RECORD_AUDIO",
-        "android.permission.RECORD_AUDIO",
-        "android.permission.MODIFY_AUDIO_SETTINGS"
+        "MODIFY_AUDIO_SETTINGS"
       ],
       "edgeToEdgeEnabled": true,
-      "package": "com.anonymous.VirtualMe-Frontend"
+      "package": "com.anonymous.virtualme"           
     },
+
     "web": {
       "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
+
     "plugins": [
       "expo-router",
       [
@@ -46,30 +49,21 @@
       ],
       [
         "expo-av",
-        {
-          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone to visualize and transcribe voice."
-        }
+        { "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone to visualize and transcribe voice." }
       ],
       [
         "react-native-permissions",
         {
-          "iosPermissions": [
-            "Microphone"
-          ],
-          "androidPermissions": [
-            "RECORD_AUDIO"
-          ]
+          "iosPermissions": ["Microphone"],
+          "androidPermissions": ["RECORD_AUDIO"]
         }
       ]
     ],
-    "experiments": {
-      "typedRoutes": true
-    },
+
+    "experiments": { "typedRoutes": true },
     "extra": {
       "router": {},
-      "eas": {
-        "projectId": "d55778ed-f4f9-461b-93c4-c5f669bbec06"
-      }
+      "eas": { "projectId": "d55778ed-f4f9-461b-93c4-c5f669bbec06" }
     }
   }
 }
