@@ -1,47 +1,34 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, LayoutChangeEvent, Platform, ScrollView, AppState } from 'react-native';
+import { View, Text, StyleSheet, LayoutChangeEvent, Pressable, Platform, ScrollView } from 'react-native';
 import { GLView } from 'expo-gl';
 import { Renderer } from 'expo-three';
 import * as THREE from 'three';
 import { createNoise3D } from 'simplex-noise';
 
-import { useAudioRecorder, RecordingPresets, setAudioModeAsync, AudioModule } from 'expo-audio';
 import AudioRecord from 'react-native-audio-record';
+import * as FileSystem from 'expo-file-system';
+import { Audio } from 'expo-av';
 import { toByteArray } from 'base64-js';
-import { useFocusEffect } from '@react-navigation/native';
 
-let Voice: any = null;
-try {
-  Voice = require('@react-native-voice/voice').default || require('@react-native-voice/voice');
-} catch { Voice = null; }
+// ========= Orb constants =========
+const ORB_RADIUS = 7;
+const ORB_DETAIL = 10;
 
-export type Mobile3DOrbProps = { intensity?: number };
+// ========= EMA smoothing =========
+const EMA_ALPHA = 0.22;
 
-/** --------- Tunables (stabler speech detection) ---------- **/
-const VAD_UP_THRESHOLD = 0.14;     // become "speaking" when smoothed >= this
-const VAD_DOWN_THRESHOLD = 0.09;   // become "not speaking" when smoothed < this (hysteresis)
-const MIN_SPEECH_MS = 250;         // require this much continuous "speaking" to start
-const MIN_SILENCE_MS = 1800;       // require this much continuous "not speaking" to finalize
-const RESTART_DELAY_MS = 350;      // delay before restarting Voice after finalize
-const SMOOTH_WINDOW = 10;          // moving-average window over last N rms frames (200ms tick => ~2s)
-const PARTIAL_SILENT_RESET_MS = 4000; // if no results for long, force restart
-
-/** ---------- helpers ---------- **/
-const dbToLinear = (db: number | undefined | null) => {
-  if (db == null || Number.isNaN(db)) return 0;
-  const linear = Math.pow(10, Math.max(-60, Math.min(0, db)) / 20);
-  return Math.min(1, linear * 2.5);
-};
+// ========= Helpers =========
 const base64ToInt16 = (b64: string): Int16Array => {
   const bytes = toByteArray(b64);
   const out = new Int16Array(bytes.length / 2);
   for (let i = 0, j = 0; i < out.length; i++, j += 2) {
-    let val = (bytes[j + 1] << 8) | bytes[j];
-    if (val & 0x8000) val -= 0x10000;
-    out[i] = val;
+    let v = (bytes[j + 1] << 8) | bytes[j];
+    if (v & 0x8000) v -= 0x10000;
+    out[i] = v;
   }
   return out;
 };
+
 const int16Rms01 = (samples: Int16Array) => {
   if (!samples.length) return 0;
   let sum = 0;
@@ -50,26 +37,29 @@ const int16Rms01 = (samples: Int16Array) => {
     sum += v * v;
   }
   const rms = Math.sqrt(sum / samples.length);
-  return Math.min(1, rms * 2.5);
+  return Math.max(0, Math.min(1, rms * 2.5));
 };
 
-const ORB_RADIUS = 7;
-const ORB_DETAIL = 10;
+const toFileUri = (p?: string | null) => {
+  if (!p) return '';
+  return p.startsWith('file://') ? p : `file://${p}`;
+};
+
+type Mobile3DOrbProps = { intensity?: number };
 
 const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
-  const [isListening, setIsListening] = useState(false);
+  // UI
+  const [isRecording, setIsRecording] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [savedUri, setSavedUri] = useState<string>('');
+  const [isSaving, setIsSaving] = useState(false);
 
-  const [liveTranscript, setLiveTranscript] = useState('');
-  const [finalTranscripts, setFinalTranscripts] = useState<string[]>([]);
-  const [isTranscribing, setIsTranscribing] = useState(false);
+  // Refs
+  const isRecordingRef = useRef(isRecording);
+  useEffect(() => { isRecordingRef.current = isRecording; }, [isRecording]);
 
-  const [speechDetected, setSpeechDetected] = useState(false);
-
-  const activeRef = useRef(false);
-  const audioInitedRef = useRef(false);
-  const dataHandlerRef = useRef<((b64: string) => void) | null>(null);
-
+  // GL / Three refs
   const glRef = useRef<any>(null);
   const rendererRef = useRef<Renderer | null>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
@@ -79,240 +69,104 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
   const originalPositionsRef = useRef<Float32Array | null>(null);
   const frameRef = useRef<number | null>(null);
 
-  const volumeRef = useRef(0);
-  const smoothedVolumeRef = useRef(0);
-  const rmsWindowRef = useRef<number[]>([]);
+  // Volume for orb (EMA of RMS)
+  const emaRef = useRef(0);
+  const volRef = useRef(0);
 
-  // VAD FSM
-  const speakingRef = useRef(false);
-  const lastStateChangeRef = useRef<number>(Date.now());
-  const lastAnySpeechRef = useRef<number>(0);         // last time speakingRef was true
-  const lastPartialOrFinalRef = useRef<number>(0);    // to detect dead sessions
-  const cooldownRef = useRef(false);                  // avoid thrashing restarts
+  // AudioRecord data handler
+  const dataHandlerRef = useRef<((b64: string) => void) | null>(null);
 
-  const pauseTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const audioBufferRef = useRef<string[]>([]);
   const noise3D = useMemo(() => createNoise3D(), []);
 
-  const recorder = useAudioRecorder(
-    { ...RecordingPresets.HIGH_QUALITY, isMeteringEnabled: true },
-    (status) => {
-      // Cast status to any so we can read metering
-      const db = (status as any)?.metering as number | undefined;
-      if (typeof db === 'number') pushRms(dbToLinear(db));
-    }
-  );
-
-  /** --------- ANDROID: raw PCM metering ---------- **/
-  const handleAudioChunk = useCallback((b64: string) => {
-    if (!activeRef.current) return;
-    const i16 = base64ToInt16(b64);
-    pushRms(int16Rms01(i16));
-  }, []);
-
-  /** --------- pushRms -> moving average + hysteresis ---------- **/
-  const pushRms = (val: number) => {
-    const win = rmsWindowRef.current;
-    win.push(val);
-    if (win.length > SMOOTH_WINDOW) win.shift();
-
-    const avg = win.reduce((a, b) => a + b, 0) / win.length;
-    volumeRef.current = avg;
-
-    // Hysteresis switching
-    const now = Date.now();
-    if (!speakingRef.current) {
-      if (avg >= VAD_UP_THRESHOLD) {
-        if (now - lastStateChangeRef.current >= MIN_SPEECH_MS) {
-          speakingRef.current = true;
-          lastStateChangeRef.current = now;
-          lastAnySpeechRef.current = now;
-          setSpeechDetected(true);
-        }
-      } else {
-        lastStateChangeRef.current = now; // keep extending not-speaking window
-      }
-    } else {
-      if (avg < VAD_DOWN_THRESHOLD) {
-        if (now - lastAnySpeechRef.current >= MIN_SILENCE_MS) {
-          speakingRef.current = false;
-          lastStateChangeRef.current = now;
-          setSpeechDetected(false);
-          // finalize ONCE after long silence
-          void finalizeAndMaybeRestart();
-        }
-      } else {
-        lastAnySpeechRef.current = now;
-      }
-    }
+  const pushRms = (rms: number) => {
+    const prev = emaRef.current || 0;
+    const ema = prev + EMA_ALPHA * (rms - prev);
+    emaRef.current = ema;
+    volRef.current = ema;
   };
 
-  /** --------- Voice permission / availability ---------- **/
-  useEffect(() => {
-    (async () => {
-      try {
-        if (!Voice) return;
-        if (Platform.OS === 'ios' && typeof Voice.requestAuthorization === 'function') {
-          const auth = await Voice.requestAuthorization();
-          if (auth !== 'authorized') {
-            setMicError('Speech recognition permission not granted.');
-            return;
-          }
-        }
-        if (typeof Voice.isAvailable === 'function') {
-          const ok = await Voice.isAvailable();
-          if (!ok) console.warn('Speech recognition not available on this device');
-        }
-      } catch (err: any) {
-        setMicError('Speech init error: ' + (err?.message ?? String(err)));
-      }
-    })();
-  }, []);
-
-  /** --------- Voice events ---------- **/
-  useEffect(() => {
-    if (!Voice) return;
-
-    const onSpeechStart = () => {
-      // console.log('speechStart');
-      setIsTranscribing(true);
-      lastPartialOrFinalRef.current = Date.now();
-    };
-    const onSpeechEnd = () => {
-      // console.log('speechEnd');
-      setIsTranscribing(false);
-    };
-    const onSpeechResults = (e: any) => {
-      lastPartialOrFinalRef.current = Date.now();
-      if (Array.isArray(e?.value) && e.value[0]) {
-        setFinalTranscripts((p) => [...p, e.value[0]]);
-        setLiveTranscript('');
-      }
-      setIsTranscribing(false);
-    };
-    const onSpeechPartialResults = (e: any) => {
-      lastPartialOrFinalRef.current = Date.now();
-      if (Array.isArray(e?.value) && e.value[0]) {
-        setLiveTranscript(e.value[0]);
-      }
-    };
-    const onSpeechError = (_e: any) => {
-      setIsTranscribing(false);
-      // force restart on error after a small delay
-      setTimeout(() => { if (isListening) startVoice(); }, RESTART_DELAY_MS);
-    };
-
-    if (Voice.removeAllListeners) Voice.removeAllListeners();
-    if (Voice.addListener) {
-      Voice.addListener('onSpeechStart', onSpeechStart);
-      Voice.addListener('onSpeechEnd', onSpeechEnd);
-      Voice.addListener('onSpeechResults', onSpeechResults);
-      Voice.addListener('onSpeechPartialResults', onSpeechPartialResults);
-      Voice.addListener('onSpeechError', onSpeechError);
-    } else {
-      Voice.onSpeechStart = onSpeechStart;
-      Voice.onSpeechEnd = onSpeechEnd;
-      Voice.onSpeechResults = onSpeechResults;
-      Voice.onSpeechPartialResults = onSpeechPartialResults;
-      Voice.onSpeechError = onSpeechError;
-    }
-
-    return () => {
-      try {
-        if (typeof Voice.destroy === 'function') {
-          Voice.destroy().then(() => {
-            if (typeof Voice.removeAllListeners === 'function') Voice.removeAllListeners();
-          });
-        }
-      } catch {}
-    };
-  }, [isListening]); // eslint-disable-line
-
-  /** --------- start/stop Voice (stable) ---------- **/
-  const startVoice = useCallback(async () => {
-    if (!Voice || typeof Voice.start !== 'function' || cooldownRef.current) return;
+  // ========= Start recording =========
+  const startRecording = useCallback(async () => {
     try {
-      setIsTranscribing(true);
-      setLiveTranscript('');
+      setMicError(null);
+      setSaveError(null);
+      setSavedUri('');
 
-      if (Platform.OS === 'android') {
-        try { await Voice.cancel(); } catch {}
-        try { await Voice.destroy(); } catch {}
-      }
+      const perm = await Audio.requestPermissionsAsync();
+      if (!perm.granted) throw new Error('Microphone permission denied.');
 
-      const opts = Platform.select({
-        ios: {},
-        android: {
-          EXTRA_PARTIAL_RESULTS: true,
-          EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS: 1500,
-          EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS: 1500,
-          REQUEST_PERMISSIONS_AUTO: true,
-          EXTRA_MAX_RESULTS: 3,
-          EXTRA_LANGUAGE_MODEL: 'LANGUAGE_MODEL_FREE_FORM',
-        },
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
       });
 
-      await Voice.start('en-US', opts);
-      lastPartialOrFinalRef.current = Date.now();
+      // Use WAV, 16k mono (speech-friendly)
+      const fileName = `rec-${Date.now()}.wav`;
+      AudioRecord.init({
+        sampleRate: 16000,
+        channels: 1,
+        bitsPerSample: 16,
+        audioSource: 1,
+        wavFile: fileName, // recorder decides exact folder
+      });
+
+      if (!dataHandlerRef.current) {
+        dataHandlerRef.current = (b64: string) => {
+          if (!isRecordingRef.current) return;
+          try {
+            const i16 = base64ToInt16(b64);
+            pushRms(int16Rms01(i16));
+          } catch {}
+        };
+        // @ts-ignore
+        AudioRecord.on('data', dataHandlerRef.current);
+      }
+
+      await AudioRecord.start();
+      setIsRecording(true);
     } catch (e: any) {
-      setMicError('Speech start error: ' + (e?.message || String(e)));
-      setIsTranscribing(false);
+      setMicError(e?.message || String(e));
+      setIsRecording(false);
     }
   }, []);
 
-  const stopVoice = useCallback(async () => {
-    if (!Voice) return;
-    try { await Voice.stop(); } catch {}
-    setIsTranscribing(false);
+  // ========= Stop recording: keep recorder's path (no copy) =========
+  const stopRecording = useCallback(async () => {
+    try {
+      setIsRecording(false);
+      setIsSaving(true);
+
+      const rawPath: string = await AudioRecord.stop(); // returns absolute path (no scheme)
+      const uri = toFileUri(rawPath);
+
+      // Confirm it exists; if it does, just use it.
+      const info = await FileSystem.getInfoAsync(uri);
+      if (!info.exists) {
+        setSaveError(`Recorded file not found at ${uri}`);
+      } else {
+        setSavedUri(uri);      // <- keep original file; ready for upload later
+        setSaveError(null);
+      }
+    } catch (e: any) {
+      setSaveError('Stop/save failed: ' + (e?.message || String(e)));
+    } finally {
+      emaRef.current = 0;
+      volRef.current = 0;
+      setIsSaving(false);
+    }
   }, []);
 
-  /** --------- finalize once & restart after cooldown ---------- **/
-  const finalizeAndMaybeRestart = useCallback(async () => {
-    if (!Voice || cooldownRef.current) return;
-    cooldownRef.current = true;
-    try { await Voice.stop(); } catch {}
-    setTimeout(() => {
-      cooldownRef.current = false;
-      if (isListening) startVoice();
-    }, RESTART_DELAY_MS);
-  }, [startVoice, isListening]);
+  const onPressOrb = useCallback(async () => {
+    if (isRecordingRef.current) {
+      await stopRecording();
+    } else {
+      await startRecording();
+    }
+  }, [startRecording, stopRecording]);
 
-  /** --------- watchdog: dead session with no partials ---------- **/
-  useEffect(() => {
-    if (!isListening) return;
-    const t = setInterval(() => {
-      if (!Voice) return;
-      const now = Date.now();
-      if (now - lastPartialOrFinalRef.current > PARTIAL_SILENT_RESET_MS && !cooldownRef.current) {
-        // Force a gentle restart if session looks frozen
-        void finalizeAndMaybeRestart();
-      }
-    }, 1000);
-    return () => clearInterval(t);
-  }, [isListening, finalizeAndMaybeRestart]);
-
-  /** --------- AppState: ensure running when foregrounded ---------- **/
-  useEffect(() => {
-    const handleAppState = (state: string) => {
-      if (state === 'active' && isListening) startVoice();
-    };
-    const sub = AppState.addEventListener?.('change', handleAppState);
-    return () => sub?.remove?.();
-  }, [isListening, startVoice]);
-
-  /** --------- iOS dummy buffer tick to mirror Android metering path ---------- **/
-  useEffect(() => {
-    if (!isListening || Platform.OS !== 'ios') return;
-    const interval = setInterval(() => {
-      // we don't push dummy chunks; metering comes from recorder callback
-      // but we still want the VAD to evaluate regularly:
-      const avg = volumeRef.current;
-      pushRms(avg); // keep state machine ticking even if callback cadence varies
-    }, 200);
-    return () => clearInterval(interval);
-  }, [isListening]);
-
-  /** --------- Layout ---------- **/
+  // ========= Layout =========
   const onLayoutSquare = useCallback((e: LayoutChangeEvent) => {
     const { width } = e.nativeEvent.layout;
     if (rendererRef.current && glRef.current) {
@@ -326,90 +180,12 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
     }
   }, []);
 
-  /** --------- Metering start/stop ---------- **/
-  const startMetering = useCallback(async () => {
-    try {
-      setMicError(null);
-      const perm = await AudioModule.requestRecordingPermissionsAsync();
-      if (!perm.granted) throw new Error('Microphone permission denied.');
-
-      if (Platform.OS === 'android') {
-        if (!audioInitedRef.current) {
-          AudioRecord.init({
-            sampleRate: 44100, channels: 1, bitsPerSample: 16, audioSource: 1, wavFile: 'temp.wav',
-          });
-          audioInitedRef.current = true;
-        }
-        if (!dataHandlerRef.current) {
-          dataHandlerRef.current = (b64: string) => {
-            const rms = int16Rms01(base64ToInt16(b64));
-            pushRms(rms);
-          };
-          AudioRecord.on('data', dataHandlerRef.current as any);
-        }
-        await AudioRecord.start();
-        return;
-      }
-
-      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
-      await recorder.prepareToRecordAsync();
-      recorder.record();
-    } catch (e: any) {
-      activeRef.current = false;
-      setMicError('Microphone error: ' + (e?.message || String(e)));
-      throw e;
-    }
-  }, [recorder]);
-
-  const stopMetering = useCallback(async () => {
-    try {
-      if (Platform.OS === 'android') { try { await AudioRecord.stop(); } catch {} }
-      else { try { await recorder.stop(); } catch {} }
-    } finally {
-      volumeRef.current = 0;
-      smoothedVolumeRef.current = 0;
-      rmsWindowRef.current = [];
-      audioBufferRef.current = [];
-      speakingRef.current = false;
-      setLiveTranscript('');
-      setSpeechDetected(false);
-    }
-  }, [recorder]);
-
-  const startAll = useCallback(async () => {
-    if (activeRef.current) return;
-    activeRef.current = true;
-    try { await startMetering(); } catch { activeRef.current = false; }
-  }, [startMetering]);
-
-  const stopAll = useCallback(async () => {
-    if (!activeRef.current) return;
-    activeRef.current = false;
-    await stopMetering();
-  }, [stopMetering]);
-
-  /** --------- Focus lifecycle ---------- **/
-  useFocusEffect(
-    useCallback(() => {
-      setIsListening(true);
-      void startAll();
-      void startVoice();
-      return () => {
-        setIsListening(false);
-        if (activeRef.current) void stopAll();
-        void stopVoice();
-      };
-    }, [startAll, stopAll, startVoice, stopVoice])
-  );
-
-  useEffect(() => { if (micError) setIsListening(false); }, [micError]);
-
-  /** --------- Orb ---------- **/
+  // ========= Orb morph =========
   const updateBallMorph = useCallback(
     (mesh: THREE.Mesh, volume: number, original: Float32Array | null) => {
-      const geometry = mesh.geometry as THREE.IcosahedronGeometry;
+      const geometry = mesh.geometry as any;
       mesh.scale.set(1.3, 1.3, 1.3);
-      const positionAttribute = (geometry as any).getAttribute('position') as THREE.BufferAttribute;
+      const positionAttribute = geometry.getAttribute('position') as THREE.BufferAttribute;
 
       for (let i = 0; i < positionAttribute.count; i++) {
         const baseX = original ? original[i * 3]     : positionAttribute.getX(i);
@@ -451,6 +227,7 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
     (mesh.material as THREE.MeshLambertMaterial).color.set(0xffffff);
   }, []);
 
+  // ========= GL init + render loop =========
   const onContextCreate = useCallback(async (gl: any) => {
     glRef.current = gl;
 
@@ -491,16 +268,10 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
 
       if (groupRef.current) groupRef.current.rotation.y += 0.040;
 
-      const raw = volumeRef.current;
-      let smoothed = smoothedVolumeRef.current;
-      const attack = 1, release = 0.5;
-      if (raw > smoothed) smoothed = smoothed + (raw - smoothed) * attack;
-      else smoothed = smoothed + (raw - smoothed) * release;
-      smoothedVolumeRef.current = smoothed;
-
+      const vol = volRef.current; // EMA from PCM
       if (ballRef.current) {
-        if (isListening && activeRef.current) {
-          updateBallMorph(ballRef.current, smoothed, originalPositionsRef.current);
+        if (isRecording) {
+          updateBallMorph(ballRef.current, vol, originalPositionsRef.current);
         } else if (originalPositionsRef.current) {
           resetBallMorph(ballRef.current, originalPositionsRef.current);
         }
@@ -511,8 +282,9 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
       frameRef.current = requestAnimationFrame(render);
     };
     render();
-  }, [isListening, resetBallMorph, updateBallMorph]);
+  }, [isRecording, resetBallMorph, updateBallMorph]);
 
+  // ========= cleanup =========
   useEffect(() => {
     return () => {
       if (frameRef.current) cancelAnimationFrame(frameRef.current);
@@ -526,39 +298,42 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
       cameraRef.current = null;
       groupRef.current = null;
       ballRef.current = null;
-      if (activeRef.current) void stopAll();
-      if (pauseTimerRef.current) clearInterval(pauseTimerRef.current as any);
+      try { AudioRecord.stop(); } catch {}
     };
-  }, [stopAll]);
+  }, []);
 
   return (
     <View style={styles.container}>
-      <View style={styles.pressable}>
+      <Pressable style={styles.pressable} onPress={onPressOrb}>
         <GLView style={styles.gl} onLayout={onLayoutSquare} onContextCreate={onContextCreate} />
         <View style={styles.badge}>
           <Text style={styles.badgeText}>
-            {isListening ? (speechDetected ? 'Listening… (speaking)' : 'Listening…') : micError ? 'Mic error' : ''}
+            {micError
+              ? 'Mic error'
+              : isSaving
+                ? 'Saving…'
+                : isRecording
+                  ? 'Recording… (tap to stop)'
+                  : 'Tap to record'}
           </Text>
         </View>
-      </View>
+      </Pressable>
 
-      {micError ? (
+      {!!micError && (
         <View style={styles.errorBox}><Text style={styles.errorText}>{micError}</Text></View>
-      ) : null}
+      )}
+      {!!saveError && (
+        <View style={styles.errorBox}><Text style={styles.errorText}>{saveError}</Text></View>
+      )}
 
-      <View style={styles.transcriptBox}>
-        <Text style={styles.transcriptTitle}>Transcripts:</Text>
-        <ScrollView style={{ maxHeight: 140 }}>
-          {liveTranscript ? <Text style={styles.transcriptText}>{liveTranscript}</Text> : null}
-          {finalTranscripts.map((t, i) => (
-            <Text key={i} style={styles.transcriptText}>{t}</Text>
-          ))}
-          {!liveTranscript && finalTranscripts.length === 0 && !isTranscribing && !micError && (
-            <Text style={styles.transcriptText}>
-              {speechDetected ? 'Speech detected, transcribing…' : 'Waiting for speech…'}
-            </Text>
-          )}
+      <View style={styles.fileBox}>
+        <Text style={styles.fileTitle}>Last recording:</Text>
+        <ScrollView style={{ maxHeight: 120 }}>
+          <Text style={styles.filePath}>
+            {savedUri || 'No file yet. Tap to record, then tap again to stop.'}
+          </Text>
         </ScrollView>
+        {/* Upload later using fetch+FormData with the file:// URI */}
       </View>
     </View>
   );
@@ -578,10 +353,11 @@ const styles = StyleSheet.create({
   badgeText: { color: 'white', fontSize: 14 },
   errorBox: { marginTop: 8, padding: 8, backgroundColor: 'rgba(255,0,0,0.1)', borderRadius: 8 },
   errorText: { color: '#c00' },
-  transcriptBox: {
-    marginTop: 12, width: '90%', backgroundColor: 'rgba(0,0,0,0.07)',
-    borderRadius: 8, padding: 8, minHeight: 40, maxHeight: 160,
+  fileBox: {
+    marginTop: 12, width: '90%',
+    backgroundColor: 'rgba(0,0,0,0.07)', borderRadius: 8, padding: 8,
+    minHeight: 60, maxHeight: 160,
   },
-  transcriptTitle: { fontWeight: 'bold', color: '#333', marginBottom: 4, fontSize: 13 },
-  transcriptText: { color: '#222', fontSize: 14, marginBottom: 2 },
+  fileTitle: { fontWeight: 'bold', color: '#333', marginBottom: 6, fontSize: 13 },
+  filePath: { color: '#222', fontSize: 13 },
 });

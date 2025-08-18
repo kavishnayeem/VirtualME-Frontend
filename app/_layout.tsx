@@ -24,7 +24,7 @@ export default function RootLayout() {
         {/* Detail screens that should hide the tab bar */}
         <Stack.Screen name="voice-chat" options={{ title: 'Voice Chat' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
-        <Stack.Screen name="voice-clone" options={{ title: 'Voice Clone' }} />
+        <Stack.Screen name="VoiceClone/index" options={{ title: 'Voice Clone' }} />
         <Stack.Screen name="profile" options={{ title: 'Profile' }} />
 
         <Stack.Screen name="+not-found" />
