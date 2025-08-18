@@ -1,10 +1,10 @@
 {
   "expo": {
     "name": "VirtualMe",
-    "slug": "virtualme",
+    "slug": "VirtualMe",
     "version": "1.0.0",
     "orientation": "portrait",
-    "scheme": "virtualme",
+    "scheme": "VirtualMe",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
 
@@ -19,7 +19,7 @@
 
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/images/logo.jpg",
         "backgroundColor": "#ffffff"
       },
       "permissions": [
