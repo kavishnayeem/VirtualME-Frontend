@@ -1,5 +1,7 @@
+
+// Mobile3DOrb.native.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, LayoutChangeEvent, Pressable, Platform, ScrollView } from 'react-native';
+import { View, Text, StyleSheet, LayoutChangeEvent, Pressable, ScrollView } from 'react-native';
 import { GLView } from 'expo-gl';
 import { Renderer } from 'expo-three';
 import * as THREE from 'three';
@@ -9,6 +11,9 @@ import AudioRecord from 'react-native-audio-record';
 import * as FileSystem from 'expo-file-system';
 import { Audio } from 'expo-av';
 import { toByteArray } from 'base64-js';
+
+// ========= CONFIG: point this to your server =========
+const BACKEND_URL = 'http://192.168.0.74:3000'; // <-- change to your LAN IP or tunnel URL
 
 // ========= Orb constants =========
 const ORB_RADIUS = 7;
@@ -40,9 +45,14 @@ const int16Rms01 = (samples: Int16Array) => {
   return Math.max(0, Math.min(1, rms * 2.5));
 };
 
-const toFileUri = (p?: string | null) => {
-  if (!p) return '';
-  return p.startsWith('file://') ? p : `file://${p}`;
+const toFileUri = (p?: string | null) => (!p ? '' : p.startsWith('file://') ? p : `file://${p}`);
+
+const arrayBufferToBase64 = (ab: ArrayBuffer): string => {
+  const bytes = new Uint8Array(ab);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  // @ts-ignore
+  return typeof btoa === 'function' ? btoa(binary) : Buffer.from(binary, 'binary').toString('base64');
 };
 
 type Mobile3DOrbProps = { intensity?: number };
@@ -51,9 +61,12 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
   // UI
   const [isRecording, setIsRecording] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const [savedUri, setSavedUri] = useState<string>('');
-  const [isSaving, setIsSaving] = useState(false);
+  const [status, setStatus] = useState<string>('Tap the orb to start/stop.');
+  const [isBusy, setIsBusy] = useState(false);
+
+  // playback
+  const soundRef = useRef<Audio.Sound | null>(null);
 
   // Refs
   const isRecordingRef = useRef(isRecording);
@@ -88,9 +101,13 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
   // ========= Start recording =========
   const startRecording = useCallback(async () => {
     try {
+      // cleanup any previous sound
+      try { await soundRef.current?.unloadAsync(); } catch {}
+      soundRef.current = null;
+
       setMicError(null);
-      setSaveError(null);
       setSavedUri('');
+      setStatus('Recording… (tap to stop)');
 
       const perm = await Audio.requestPermissionsAsync();
       if (!perm.granted) throw new Error('Microphone permission denied.');
@@ -102,14 +119,13 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
         shouldDuckAndroid: true,
       });
 
-      // Use WAV, 16k mono (speech-friendly)
       const fileName = `rec-${Date.now()}.wav`;
       AudioRecord.init({
         sampleRate: 16000,
         channels: 1,
         bitsPerSample: 16,
         audioSource: 1,
-        wavFile: fileName, // recorder decides exact folder
+        wavFile: fileName,
       });
 
       if (!dataHandlerRef.current) {
@@ -129,42 +145,84 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
     } catch (e: any) {
       setMicError(e?.message || String(e));
       setIsRecording(false);
+      setStatus('Mic error');
     }
   }, []);
 
-  // ========= Stop recording: keep recorder's path (no copy) =========
+  // ========= Upload to backend and play returned audio =========
+  const uploadAndPlay = useCallback(async (uri: string) => {
+    try {
+      setIsBusy(true);
+      setStatus('Uploading to backend…');
+  
+      const form = new FormData();
+      form.append('audio', { uri, name: 'audio.wav', type: 'audio/wav' } as any);
+  
+      const resp = await fetch(`${BACKEND_URL}/voice`, { method: 'POST', body: form });
+  
+      if (!resp.ok) {
+        const txt = await resp.text();
+        setStatus(`Server error: ${txt.slice(0, 160)}`);
+        return;
+      }
+  
+      // Read the text reply (UTF-8 safe via encodeURIComponent)
+      const replyHeader = resp.headers.get('x-reply-text');
+      const replyText = replyHeader ? decodeURIComponent(replyHeader) : '';
+      if (replyText) setStatus(`Captions: ${replyText}`); else setStatus('Downloading reply…');
+  
+      const ab = await resp.arrayBuffer();
+      const b64 = arrayBufferToBase64(ab);
+      const outPath = `${FileSystem.cacheDirectory}reply-${Date.now()}.wav`;
+      await FileSystem.writeAsStringAsync(outPath, b64, { encoding: FileSystem.EncodingType.Base64 });
+  
+      const { sound } = await Audio.Sound.createAsync({ uri: outPath });
+      soundRef.current = sound;
+      await sound.playAsync();
+    } catch (e: any) {
+      setStatus(`Upload/Play failed: ${e?.message || String(e)}`);
+    } finally {
+      setIsBusy(false);
+    }
+  }, []);
+  
+
+  // ========= Stop recording =========
   const stopRecording = useCallback(async () => {
     try {
       setIsRecording(false);
-      setIsSaving(true);
+      setStatus('Finishing…');
 
-      const rawPath: string = await AudioRecord.stop(); // returns absolute path (no scheme)
+      const rawPath: string = await AudioRecord.stop();
       const uri = toFileUri(rawPath);
 
-      // Confirm it exists; if it does, just use it.
       const info = await FileSystem.getInfoAsync(uri);
       if (!info.exists) {
-        setSaveError(`Recorded file not found at ${uri}`);
-      } else {
-        setSavedUri(uri);      // <- keep original file; ready for upload later
-        setSaveError(null);
+        setStatus('Recorded file missing.');
+        return;
       }
+
+      setSavedUri(uri);
+      setStatus('Sending to backend…');
+      // auto-send to backend & play TTS reply
+      await uploadAndPlay(uri);
     } catch (e: any) {
-      setSaveError('Stop/save failed: ' + (e?.message || String(e)));
+      setStatus('Stop failed.');
     } finally {
       emaRef.current = 0;
       volRef.current = 0;
-      setIsSaving(false);
     }
-  }, []);
+  }, [uploadAndPlay]);
 
+  // ========= Toggle on tap =========
   const onPressOrb = useCallback(async () => {
+    if (isBusy) return; // avoid double taps during upload/playback
     if (isRecordingRef.current) {
       await stopRecording();
     } else {
       await startRecording();
     }
-  }, [startRecording, stopRecording]);
+  }, [startRecording, stopRecording, isBusy]);
 
   // ========= Layout =========
   const onLayoutSquare = useCallback((e: LayoutChangeEvent) => {
@@ -268,7 +326,7 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
 
       if (groupRef.current) groupRef.current.rotation.y += 0.040;
 
-      const vol = volRef.current; // EMA from PCM
+      const vol = volRef.current;
       if (ballRef.current) {
         if (isRecording) {
           updateBallMorph(ballRef.current, vol, originalPositionsRef.current);
@@ -287,6 +345,7 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
   // ========= cleanup =========
   useEffect(() => {
     return () => {
+      try { soundRef.current?.unloadAsync(); } catch {}
       if (frameRef.current) cancelAnimationFrame(frameRef.current);
       if (rendererRef.current) {
         // @ts-ignore
@@ -308,13 +367,9 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
         <GLView style={styles.gl} onLayout={onLayoutSquare} onContextCreate={onContextCreate} />
         <View style={styles.badge}>
           <Text style={styles.badgeText}>
-            {micError
-              ? 'Mic error'
-              : isSaving
-                ? 'Saving…'
-                : isRecording
-                  ? 'Recording… (tap to stop)'
-                  : 'Tap to record'}
+            {isBusy ? 'Working…'
+              : isRecording ? 'Recording… (tap to stop)'
+              : 'Tap to start/stop'}
           </Text>
         </View>
       </Pressable>
@@ -322,18 +377,13 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
       {!!micError && (
         <View style={styles.errorBox}><Text style={styles.errorText}>{micError}</Text></View>
       )}
-      {!!saveError && (
-        <View style={styles.errorBox}><Text style={styles.errorText}>{saveError}</Text></View>
-      )}
 
       <View style={styles.fileBox}>
-        <Text style={styles.fileTitle}>Last recording:</Text>
+        <Text style={styles.fileTitle}>Status</Text>
         <ScrollView style={{ maxHeight: 120 }}>
-          <Text style={styles.filePath}>
-            {savedUri || 'No file yet. Tap to record, then tap again to stop.'}
-          </Text>
+          <Text style={styles.filePath}>{status}</Text>
+          
         </ScrollView>
-        {/* Upload later using fetch+FormData with the file:// URI */}
       </View>
     </View>
   );
@@ -359,5 +409,5 @@ const styles = StyleSheet.create({
     minHeight: 60, maxHeight: 160,
   },
   fileTitle: { fontWeight: 'bold', color: '#333', marginBottom: 6, fontSize: 13 },
-  filePath: { color: '#222', fontSize: 13 },
+  filePath: { color: '#ddd' },
 });
