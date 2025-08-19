@@ -13,7 +13,7 @@ import { Audio } from 'expo-av';
 import { toByteArray } from 'base64-js';
 
 // ========= CONFIG: point this to your server =========
-const BACKEND_URL = 'http://192.168.0.74:3000'; // <-- change to your LAN IP or tunnel URL
+const BACKEND_URL = 'https://virtual-me-voice-agent.vercel.app'; // <-- change to your LAN IP or tunnel URL
 
 // ========= Orb constants =========
 const ORB_RADIUS = 7;

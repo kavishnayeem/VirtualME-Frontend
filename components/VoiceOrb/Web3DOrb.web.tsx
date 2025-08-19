@@ -5,7 +5,7 @@ import { createNoise3D } from 'simplex-noise';
 type Props = { intensity?: number };
 
 // ========= CONFIG: point this to your server =========
-const BACKEND_URL = 'http://192.168.0.74:3000'; // <-- change to your LAN IP or tunnel URL
+const BACKEND_URL = 'https://virtual-me-voice-agent.vercel.app'; // <-- change to your LAN IP or tunnel URL
 
 const ORB_RADIUS = 7; // Keep orb radius constant
 
