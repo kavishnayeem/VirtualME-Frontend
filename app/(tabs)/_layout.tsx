@@ -27,6 +27,13 @@ export default function TabLayout() {
         }),
       }}
     >
+            <Tabs.Screen
+        name="AboutMe/index"
+        options={{
+          title: 'About Me',
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.fill" color={color} />,
+        }}
+      />
       <Tabs.Screen
         name="index"
         options={{
@@ -39,7 +46,7 @@ export default function TabLayout() {
         options={{
           title: 'Menu',
           // Use a different icon that exists, e.g. "person.crop.circle"
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="chevron.right" color={color} />,
+          tabBarIcon: ({ color }) => <IconSymbol size={28} name="menu" color={color} />,
         }}
       />
     </Tabs>

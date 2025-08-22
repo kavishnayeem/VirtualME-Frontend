@@ -268,10 +268,7 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
 
       positionAttribute.needsUpdate = true;
       geometry.computeVertexNormals();
-
-      // Use the same blue color as the orb speaking (hsl(210, 100%, 56%))
-      // Optionally, you can animate the color based on volume, but for "speaking" orb, it's a blue
-      const color = new THREE.Color('hsl(210, 100%, 56%)');
+      const color = new THREE.Color(`hsl(${volume * 120}, 100%, 50%)`);
       (mesh.material as THREE.MeshLambertMaterial).color = color;
     },
     [intensity, noise3D]
@@ -285,8 +282,7 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
     }
     positionAttribute.needsUpdate = true;
     geometry.computeVertexNormals();
-    // Use the same blue color as the orb speaking (hsl(210, 100%, 56%))
-    (mesh.material as THREE.MeshLambertMaterial).color.set('hsl(210, 100%, 56%)');
+    (mesh.material as THREE.MeshLambertMaterial).color.set(0xffffff);
   }, []);
 
   // ========= GL init + render loop =========
@@ -309,8 +305,7 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
     groupRef.current = group;
 
     const icosahedronGeometry = new THREE.IcosahedronGeometry(ORB_RADIUS, ORB_DETAIL);
-    // Use the same blue color as the orb speaking (hsl(210, 100%, 56%)), no wireframe
-    const lambertMaterial = new THREE.MeshLambertMaterial({ color: new THREE.Color('hsl(210, 100%, 56%)'), wireframe: false });
+    const lambertMaterial = new THREE.MeshLambertMaterial({ color: 0xffffff, wireframe: true });
     const ball = new THREE.Mesh(icosahedronGeometry, lambertMaterial);
     ball.position.set(0, 0, 0);
     ballRef.current = ball;
@@ -399,20 +394,7 @@ export default Mobile3DOrb;
 const styles = StyleSheet.create({
   container: { width: '100%', alignItems: 'center' },
   pressable: { width: '100%', maxWidth: 500, aspectRatio: 1 },
-  gl: { 
-    width: '100%', 
-    height: '100%', 
-    borderRadius: 999, // Make orb fully round
-    overflow: 'hidden', 
-    backgroundColor: 'hsl(210, 100%, 56%)', // Blue background for orb
-    borderWidth: 4,
-    borderColor: 'rgba(0, 0, 0, 0.08)',
-    shadowColor: '#1e90ff',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.25,
-    shadowRadius: 24,
-    elevation: 12,
-  },
+  gl: { width: '100%', height: '100%', borderRadius: 16, overflow: 'hidden' },
   badge: {
     position: 'absolute', bottom: 10, left: 10, right: 10,
     paddingVertical: 8, paddingHorizontal: 12,

@@ -4,6 +4,14 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { Link, type Href } from 'expo-router';
 import { ThemedText } from '../../../components/ThemedText';
 import { ThemedView } from '../../../components/ThemedView';
+import { IconSymbol } from '../../../components/ui/IconSymbol';
+
+// Use the IconSymbolName type from IconSymbol.tsx
+type IconSymbolName =
+  | 'person.crop.circle'
+  | 'voice.chat'
+  | 'waveform.circle'
+  | 'gear';
 
 const R = {
   settings: '/settings',
@@ -12,11 +20,58 @@ const R = {
   profile: '/profile',
 } as const satisfies Record<string, Href>; // ✅ forces correct type
 
-const Item = ({ title, subtitle, to }: { title: string; subtitle?: string; to: Href }) => (
+const MENU_ITEMS: Array<{
+  key: keyof typeof R;
+  title: string;
+  subtitle?: string;
+  icon: IconSymbolName;
+}> = [
+  {
+    key: 'profile',
+    title: 'Profile',
+    subtitle: 'Your account',
+    icon: 'person.crop.circle',
+  },
+  {
+    key: 'voiceChat',
+    title: 'Voice Chat',
+    subtitle: 'Talk to the orb',
+    icon: 'voice.chat',
+  },
+  {
+    key: 'voiceClone',
+    title: 'Voice Clone',
+    subtitle: 'Create your voice',
+    icon: 'waveform.circle',
+  },
+  {
+    key: 'settings',
+    title: 'Settings',
+    subtitle: 'App preferences',
+    icon: 'gear',
+  },
+];
+
+const Item = ({
+  title,
+  subtitle,
+  to,
+  icon,
+}: {
+  title: string;
+  subtitle?: string;
+  to: Href;
+  icon: IconSymbolName;
+}) => (
   <Link href={to} asChild>
     <Pressable style={styles.item}>
-      <ThemedText type="defaultSemiBold" style={styles.itemTitle}>{title}</ThemedText>
-      {subtitle ? <ThemedText style={styles.itemSub}>{subtitle}</ThemedText> : null}
+      <View style={styles.itemRow}>
+        <IconSymbol name={icon} size={28} color="#888" style={styles.itemIcon} />
+        <View style={{ flex: 1 }}>
+          <ThemedText type="defaultSemiBold" style={styles.itemTitle}>{title}</ThemedText>
+          {subtitle ? <ThemedText style={styles.itemSub}>{subtitle}</ThemedText> : null}
+        </View>
+      </View>
     </Pressable>
   </Link>
 );
@@ -26,21 +81,27 @@ export default function MenuScreen() {
     <ThemedView style={styles.container}>
       <ThemedText type="title" style={styles.title}>Menu</ThemedText>
       <View style={styles.list}>
-        <Item title="Profile"     subtitle="Your account" to={R.profile} />
-        <Item title="Voice Chat"  subtitle="Talk to the orb" to={R.voiceChat} />
-        <Item title="Voice Clone" subtitle="Create your voice" to={R.voiceClone} />
-        
-        <Item title="Settings"    subtitle="App preferences" to={R.settings} />
+        {MENU_ITEMS.map(item => (
+          <Item
+            key={item.key}
+            title={item.title}
+            subtitle={item.subtitle}
+            to={R[item.key]}
+            icon={item.icon}
+          />
+        ))}
       </View>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, gap: 12},
+  container: { flex: 1, padding: 20, gap: 12 },
   title: { textAlign: 'center', marginTop: 16, marginBottom: 12 },
   list: { gap: 12 },
   item: { padding: 16, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(127,127,127,0.3)' },
+  itemRow: { flexDirection: 'row', alignItems: 'center', gap: 16 },
+  itemIcon: { marginRight: 8 },
   itemTitle: { fontSize: 18, marginBottom: 4 },
   itemSub: { opacity: 0.7 },
 });
