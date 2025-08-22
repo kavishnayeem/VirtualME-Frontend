@@ -5,13 +5,15 @@ import { Link, type Href } from 'expo-router';
 import { ThemedText } from '../../../components/ThemedText';
 import { ThemedView } from '../../../components/ThemedView';
 import { IconSymbol } from '../../../components/ui/IconSymbol';
+import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 
-// Use the IconSymbolName type from IconSymbol.tsx
+// Use the IconSymbolName type from IconSymbol.tsx, plus 'waveform' for MaterialCommunityIcons
 type IconSymbolName =
   | 'person.crop.circle'
   | 'voice.chat'
   | 'waveform.circle'
-  | 'gear';
+  | 'gear'
+  | 'waveform'; // Add 'waveform' for special case
 
 const R = {
   settings: '/settings',
@@ -36,13 +38,13 @@ const MENU_ITEMS: Array<{
     key: 'voiceChat',
     title: 'Voice Chat',
     subtitle: 'Talk to the orb',
-    icon: 'voice.chat',
+    icon: 'waveform.circle',
   },
   {
     key: 'voiceClone',
     title: 'Voice Clone',
     subtitle: 'Create your voice',
-    icon: 'waveform.circle',
+    icon: 'waveform', // Use the new waveform icon
   },
   {
     key: 'settings',
@@ -66,7 +68,11 @@ const Item = ({
   <Link href={to} asChild>
     <Pressable style={styles.item}>
       <View style={styles.itemRow}>
-        <IconSymbol name={icon} size={28} color="#888" style={styles.itemIcon} />
+        {icon === 'waveform' ? (
+          <MaterialCommunityIcons name="waveform" size={28} color="#888" style={styles.itemIcon} />
+        ) : (
+          <IconSymbol name={icon as Exclude<IconSymbolName, 'waveform'>} size={28} color="#888" style={styles.itemIcon} />
+        )}
         <View style={{ flex: 1 }}>
           <ThemedText type="defaultSemiBold" style={styles.itemTitle}>{title}</ThemedText>
           {subtitle ? <ThemedText style={styles.itemSub}>{subtitle}</ThemedText> : null}

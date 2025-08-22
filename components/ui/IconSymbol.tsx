@@ -8,13 +8,16 @@ import { OpaqueColorValue, type StyleProp, type TextStyle } from 'react-native';
  * Add your SF Symbols to Material Icons mappings here.
  * - see Material Icons in the [Icons Directory](https://icons.expo.fyi).
  * - see SF Symbols in the [SF Symbols](https://developer.apple.com/sf-symbols/) app.
+ *
+ * Only use icon names that are valid for MaterialIcons.
  */
+
 const MAPPING = {
   'house.fill': 'home',
   'paperplane.fill': 'send',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
-  'waveform': 'multitrack-audio', // mic/voice-ish alternative
+  // 'waveform': 'waveform', // Removed: not a valid MaterialIcons name
   'person.fill': 'person', // user/account icon
   'person.crop.circle': 'account-circle',
   'gear': 'settings',
@@ -52,18 +55,19 @@ const MAPPING = {
 
   // Added menu and voice related icons
   'menu': 'menu', // Material icon for menu/hamburger
-  'waveform.circle': 'graphic-eq', // alternative for voice/voice chat
-  'waveform.and.mic': 'keyboard-voice', // another voice/mic alternative
+  'waveform.circle': 'graphic-eq', // valid MaterialIcons name
+  'waveform.and.mic': 'keyboard-voice', // valid MaterialIcons name
   'mic': 'mic-none', // non-filled mic
   'mic.circle': 'mic', // fallback to mic
   'mic.circle.fill': 'mic', // fallback to mic
   'speaker.wave.2.fill': 'volume-up', // speaker/voice output
   'speaker.slash.fill': 'volume-off', // muted speaker
-  'voice.chat': 'forum', // chat bubble for voice chat
-  'voice': 'record-voice-over', // voice/assistant
-  // Add more mappings as needed
+  'voice.chat': 'forum', // valid MaterialIcons name
+  'voice': 'record-voice-over', // valid MaterialIcons name
+  // Add more mappings as needed, but only valid MaterialIcons names
 } as const;
 
+type MaterialIconName = typeof MAPPING[keyof typeof MAPPING];
 type IconSymbolName = keyof typeof MAPPING;
 
 /**
@@ -83,5 +87,13 @@ export function IconSymbol({
   style?: StyleProp<TextStyle>;
   weight?: SymbolWeight;
 }) {
-  return <MaterialIcons color={color} size={size} name={MAPPING[name]} style={style} />;
+  // Type assertion ensures only valid MaterialIcons names are used
+  return (
+    <MaterialIcons
+      color={color}
+      size={size}
+      name={MAPPING[name] as MaterialIconName}
+      style={style}
+    />
+  );
 }
