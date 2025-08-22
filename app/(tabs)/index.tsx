@@ -1,9 +1,3 @@
-// If your images load on localhost but not on your production Expo link (virtualme.expo.app), the issue is likely NOT with your code, but with how static assets are bundled and served in Expo production builds. 
-// In Expo managed workflow, images referenced with require('../../assets/images/Logo.png') must be present in the assets/images directory and must be committed to your repository before building for production. 
-// If you added images after your last build, or if the images are not in the correct path, they will not be bundled. 
-// Also, dynamic require (e.g., require(someVar)) does NOT work in Expo. 
-// If you are using EAS Build, make sure the images exist at build time and are not gitignored. 
-// If you want to use remote images, use a URI string instead of require().
 
 import React, { useMemo, useRef, useState } from 'react';
 import {
@@ -15,9 +9,10 @@ import {
   TouchableOpacity,
   useWindowDimensions,
   View,
+  Platform,
 } from 'react-native';
 
-const { height: H0 } = Dimensions.get('window');
+const { height: H0, width: W0 } = Dimensions.get('window');
 
 type Section = {
   id: string;
@@ -38,7 +33,7 @@ const SECTIONS: Section[] = [
     title: 'VirtualMe — in your own voice.',
     description:
       "Your personal AI that speaks like you, remembers the right things, and helps the people who matter most. VirtualMe syncs with your calendar and understands your location context to keep you on track—no panic, no spam, just calm, useful help.",
-    image: require('../../assets/images/Logo.png'),
+    image: { uri: 'https://i.ibb.co/1fkZt1ky/Logo.png' },
     // For remote: image: { uri: 'https://virtualme.expo.app/assets/images/Logo.png' },
   },
   {
@@ -47,7 +42,7 @@ const SECTIONS: Section[] = [
     title: 'Live Voice Orb',
     description:
       "A real-time 3D voice orb that breathes with your speech. It listens with low-latency mic metering, visualizes energy and cadence, and makes the whole experience feel alive. Privacy-first: audio metering is used to animate locally before anything is processed.",
-    image: require('../../assets/images/orb.png'),
+    image: { uri: 'https://i.ibb.co/HDhYHtXw/orb.png' },
     // For remote: image: { uri: 'https://virtualme.expo.app/assets/images/orb.png' },
   },
   {
@@ -56,7 +51,7 @@ const SECTIONS: Section[] = [
     title: 'Your Voice, Authenticated',
     description:
       "Create a natural, safe voice clone in minutes. Multilingual output (English, Hindi, Urdu) with consent gates and clear labeling so it’s never misleading. Great for hands-free replies, reminders, and sharing updates with family in the voice they trust.",
-    image: require('../../assets/images/Voice-Clone.png'),
+    image: { uri: 'https://i.ibb.co/fY1WVCmT/Voice-Clone.png' },
     // For remote: image: { uri: 'https://virtualme.expo.app/assets/images/Voice-Clone.png' },
   },
   {
@@ -65,7 +60,7 @@ const SECTIONS: Section[] = [
     title: 'Real-time Updates + Family Lobby',
     description:
       "VirtualMe reads your day: calendar + location signals → smart nudges (“leave in 5 for your meeting”) and lightweight statuses (“grabbing lunch, back at 1:30”). Invite close family to a private lobby where they can speak with your AI twin—then receive a clean email summary of what they asked and what was shared.",
-    image: require('../../assets/images/RTU.png'),
+    image: { uri: 'https://i.ibb.co/h1YwZXns/RTU.png' },
     // For remote: image: { uri: 'https://virtualme.expo.app/assets/images/RTU.png' },
   },
 ];
@@ -76,6 +71,7 @@ export default function LandingScreen() {
   const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = useWindowDimensions();
   // Prevent division by zero: fallback to 1 if both SCREEN_HEIGHT and H0 are 0
   const pageH = Math.max(SCREEN_HEIGHT, H0, 1);
+  const pageW = Math.max(SCREEN_WIDTH, W0, 1);
   const scrollY = useRef(new Animated.Value(0)).current;
 
   // Which section index are we near?
@@ -102,15 +98,23 @@ export default function LandingScreen() {
     return m;
   }, [active]);
 
+  // Responsive breakpoints
+  const isTablet = SCREEN_WIDTH >= 640;
+  const isMobile = SCREEN_WIDTH < 480;
+
   return (
     <View style={[styles.root, { backgroundColor: '#0B0F14' }]}>
       {/* Dot pager */}
-      <View style={styles.pager}>
+      <View style={[
+        styles.pager,
+        isMobile && { top: 16, right: 10, gap: 6 }
+      ]}>
         {SECTIONS.map((_, i) => (
           <View
             key={i}
             style={[
               styles.dot,
+              isMobile && { width: 7, height: 7, borderRadius: 7, marginVertical: 2 },
               { opacity: i === active ? 1 : 0.4, transform: [{ scale: i === active ? 1 : 0.85 }] },
             ]}
           />
@@ -151,7 +155,7 @@ export default function LandingScreen() {
             inputRange: [-1, 0, 1],
             outputRange: [-28, 0, 28],
           });
-          const isWide = SCREEN_WIDTH >= 640;
+          const isWide = isTablet;
           const reverse = isWide && idx % 2 === 1;
 
           return (
@@ -159,7 +163,13 @@ export default function LandingScreen() {
               key={s.id}
               style={[
                 styles.page,
-                { height: pageH, flexDirection: isWide ? (reverse ? 'row-reverse' : 'row') : 'column' },
+                {
+                  height: pageH,
+                  flexDirection: isWide ? (reverse ? 'row-reverse' : 'row') : 'column',
+                  paddingHorizontal: isMobile ? 10 : 20,
+                  paddingVertical: isMobile ? 16 : 28,
+                  gap: isMobile ? 14 : 22,
+                },
               ]}
             >
               {/* Text card */}
@@ -169,17 +179,19 @@ export default function LandingScreen() {
                   {
                     opacity: cardOpacity,
                     transform: [{ translateY: cardTranslate }],
-                    maxWidth: isWide ? '48%' : '90%',
+                    maxWidth: isWide ? '48%' : '98%',
+                    paddingHorizontal: isMobile ? 12 : 22,
+                    paddingVertical: isMobile ? 14 : 22,
                   },
                 ]}
               >
-                {!!s.eyebrow && <Text style={styles.eyebrow}>{s.eyebrow}</Text>}
-                <Text style={styles.title}>{s.title}</Text>
-                <Text style={styles.desc}>{s.description}</Text>
+                {!!s.eyebrow && <Text style={[styles.eyebrow, isMobile && { fontSize: 12, marginBottom: 6 }]}>{s.eyebrow}</Text>}
+                <Text style={[styles.title, isMobile && { fontSize: 22, lineHeight: 28, marginBottom: 7 }]}>{s.title}</Text>
+                <Text style={[styles.desc, isMobile && { fontSize: 14.5, lineHeight: 20 }]}>{s.description}</Text>
 
                 {idx === 0 && (
-                  <TouchableOpacity activeOpacity={0.85} style={styles.cta}>
-                    <Text style={styles.ctaText}>Try the Voice Orb</Text>
+                  <TouchableOpacity activeOpacity={0.85} style={[styles.cta, isMobile && { marginTop: 10, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10 }]}>
+                    <Text style={[styles.ctaText, isMobile && { fontSize: 13 }]}>Try the Voice Orb</Text>
                   </TouchableOpacity>
                 )}
               </Animated.View>
@@ -193,8 +205,10 @@ export default function LandingScreen() {
                   styles.phone,
                   {
                     transform: [{ translateY: imgTranslate }, { scale: isWide ? 1 : 0.98 }],
-                    maxWidth: isWide ? '44%' : '86%',
+                    maxWidth: isWide ? '44%' : isMobile ? '98%' : '86%',
                     opacity: inView ? 1 : 0,
+                    height: isMobile ? '38%' : '70%',
+                    marginTop: isMobile ? 8 : 0,
                   },
                 ]}
               />
@@ -205,8 +219,8 @@ export default function LandingScreen() {
 
       {/* Scroll hint on first screen only */}
       {active === 0 && (
-        <View style={styles.hintWrap}>
-          <Text style={styles.hint}>{SCROLL_HINT}</Text>
+        <View style={[styles.hintWrap, isMobile && { bottom: 10 }]}>
+          <Text style={[styles.hint, isMobile && { fontSize: 15 }]}>{SCROLL_HINT}</Text>
         </View>
       )}
     </View>
