@@ -1,16 +1,18 @@
-
-import React, { useMemo, useRef, useState } from 'react';
+// app/(tabs)/index.tsx
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
-  ImageSourcePropType,
   StyleSheet,
   Text,
   TouchableOpacity,
   useWindowDimensions,
   View,
   Platform,
+  NativeSyntheticEvent,
+  NativeScrollEvent,
 } from 'react-native';
+import { Image as ExpoImage } from 'expo-image';
 
 const { height: H0, width: W0 } = Dimensions.get('window');
 
@@ -19,13 +21,14 @@ type Section = {
   eyebrow?: string;
   title: string;
   description: string;
-  image: ImageSourcePropType;
+  image: string;
 };
 
-// If you want to use remote images for production reliability, use the following pattern:
-// image: { uri: 'https://virtualme.expo.app/assets/images/Logo.png' }
-// But if you want to use local images, make sure they are present in the correct path and committed.
+// CDN configuration - using your provided domain
+const CDN_BASE_URL = 'https://idoxe6s.sufydely.com';
+const IMAGE_VERSION = 'v1';
 
+// ---- Content ----
 const SECTIONS: Section[] = [
   {
     id: 'hero',
@@ -33,56 +36,180 @@ const SECTIONS: Section[] = [
     title: 'VirtualMe — in your own voice.',
     description:
       "Your personal AI that speaks like you, remembers the right things, and helps the people who matter most. VirtualMe syncs with your calendar and understands your location context to keep you on track—no panic, no spam, just calm, useful help.",
-    image: { uri: 'https://i.ibb.co/1fkZt1ky/Logo.png' },
-    // For remote: image: { uri: 'https://virtualme.expo.app/assets/images/Logo.png' },
+    image: `${CDN_BASE_URL}/Logo.png?version=${IMAGE_VERSION}`,
   },
   {
     id: 'voice-orb',
     eyebrow: 'Reactive UI',
     title: 'Live Voice Orb',
     description:
-      "A real-time 3D voice orb that breathes with your speech. It listens with low-latency mic metering, visualizes energy and cadence, and makes the whole experience feel alive. Privacy-first: audio metering is used to animate locally before anything is processed.",
-    image: { uri: 'https://i.ibb.co/HDhYHtXw/orb.png' },
-    // For remote: image: { uri: 'https://virtualme.expo.app/assets/images/orb.png' },
+      'A real-time 3D voice orb that breathes with your speech. It listens with low-latency mic metering, visualizes energy and cadence, and makes the whole experience feel alive. Privacy-first: audio metering is used to animate locally before anything is processed.',
+    image: `${CDN_BASE_URL}/orb.png?version=${IMAGE_VERSION}`,
   },
   {
     id: 'voice-clone',
     eyebrow: 'Ethical cloning',
     title: 'Your Voice, Authenticated',
     description:
-      "Create a natural, safe voice clone in minutes. Multilingual output (English, Hindi, Urdu) with consent gates and clear labeling so it’s never misleading. Great for hands-free replies, reminders, and sharing updates with family in the voice they trust.",
-    image: { uri: 'https://i.ibb.co/fY1WVCmT/Voice-Clone.png' },
-    // For remote: image: { uri: 'https://virtualme.expo.app/assets/images/Voice-Clone.png' },
+      'Create a natural, safe voice clone in minutes. Multilingual output (English, Hindi, Urdu) with consent gates and clear labeling so it\'s never misleading. Great for hands-free replies, reminders, and sharing updates with family in the voice they trust.',
+    image: `${CDN_BASE_URL}/Voice-Clone.png?version=${IMAGE_VERSION}`,
   },
   {
     id: 'context',
     eyebrow: 'Context-aware help',
     title: 'Real-time Updates + Family Lobby',
     description:
-      "VirtualMe reads your day: calendar + location signals → smart nudges (“leave in 5 for your meeting”) and lightweight statuses (“grabbing lunch, back at 1:30”). Invite close family to a private lobby where they can speak with your AI twin—then receive a clean email summary of what they asked and what was shared.",
-    image: { uri: 'https://i.ibb.co/h1YwZXns/RTU.png' },
-    // For remote: image: { uri: 'https://virtualme.expo.app/assets/images/RTU.png' },
+      'VirtualMe reads your day: calendar + location signals → smart nudges ("leave in 5 for your meeting") and lightweight statuses ("grabbing lunch, back at 1:30"). Invite close family to a private lobby where they can speak with your AI twin—then receive a clean email summary of what they asked and what was shared.',
+    image: `${CDN_BASE_URL}/RTU.png?version=${IMAGE_VERSION}`,
   },
 ];
 
 const SCROLL_HINT = '▼';
+const AnimatedView = Animated.createAnimatedComponent(View);
+
+// Define the type for imagesLoaded state
+type ImagesLoadedState = {
+  [key: string]: boolean;
+};
+
+// Sound Wave Loader Component
+const SoundWaveLoader = () => {
+  const bar1Anim = useRef(new Animated.Value(0)).current;
+  const bar2Anim = useRef(new Animated.Value(0)).current;
+  const bar3Anim = useRef(new Animated.Value(0)).current;
+  const bar4Anim = useRef(new Animated.Value(0)).current;
+  const bar5Anim = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    // Create a staggered animation for the sound bars
+    const createAnimation = (anim: Animated.Value, delay: number) => {
+      return Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(anim, {
+            toValue: 1,
+            duration: 400,
+            useNativeDriver: true,
+          }),
+          Animated.timing(anim, {
+            toValue: 0,
+            duration: 400,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+    };
+
+    // Start all animations
+    createAnimation(bar1Anim, 0).start();
+    createAnimation(bar2Anim, 100).start();
+    createAnimation(bar3Anim, 200).start();
+    createAnimation(bar4Anim, 300).start();
+    createAnimation(bar5Anim, 400).start();
+
+    // Clean up on unmount
+    return () => {
+      bar1Anim.stopAnimation();
+      bar2Anim.stopAnimation();
+      bar3Anim.stopAnimation();
+      bar4Anim.stopAnimation();
+      bar5Anim.stopAnimation();
+    };
+  }, []);
+
+  return (
+    <View style={styles.soundWaveContainer}>
+      <Animated.View 
+        style={[
+          styles.soundBar, 
+          styles.soundBar1, 
+          { 
+            transform: [{ 
+              scaleY: bar1Anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.3, 1.2]
+              }) 
+            }] 
+          }] 
+        } 
+      />
+      <Animated.View 
+        style={[
+          styles.soundBar, 
+          styles.soundBar2, 
+          { 
+            transform: [{ 
+              scaleY: bar2Anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.5, 1.5]
+              }) 
+            }] 
+          }] 
+        } 
+      />
+      <Animated.View 
+        style={[
+          styles.soundBar, 
+          styles.soundBar3, 
+          { 
+            transform: [{ 
+              scaleY: bar3Anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.7, 1.7]
+              }) 
+            }] 
+          }] 
+        } 
+      />
+      <Animated.View 
+        style={[
+          styles.soundBar, 
+          styles.soundBar4, 
+          { 
+            transform: [{ 
+              scaleY: bar4Anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.5, 1.5]
+              }) 
+            }] 
+          }] 
+        } 
+      />
+      <Animated.View 
+        style={[
+          styles.soundBar, 
+          styles.soundBar5, 
+          { 
+            transform: [{ 
+              scaleY: bar5Anim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.3, 1.2]
+              }) 
+            }] 
+          }] 
+        } 
+      />
+    </View>
+  );
+};
 
 export default function LandingScreen() {
   const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = useWindowDimensions();
-  // Prevent division by zero: fallback to 1 if both SCREEN_HEIGHT and H0 are 0
   const pageH = Math.max(SCREEN_HEIGHT, H0, 1);
-  const pageW = Math.max(SCREEN_WIDTH, W0, 1);
   const scrollY = useRef(new Animated.Value(0)).current;
 
   // Which section index are we near?
   const [active, setActive] = useState(0);
+  const [imagesLoaded, setImagesLoaded] = useState<ImagesLoadedState>({});
+  const [isAppReady, setIsAppReady] = useState(false);
+  
+  // Fix for error 1: Properly type the scroll event
   const onScroll = Animated.event(
     [{ nativeEvent: { contentOffset: { y: scrollY } } }],
     {
-      useNativeDriver: true,
-      listener: (e) => {
-        const y = (e as { nativeEvent: { contentOffset: { y: number } } }).nativeEvent.contentOffset.y;
-        // Prevent division by zero
+      useNativeDriver: false,
+      listener: (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+        const y = e.nativeEvent.contentOffset.y;
         const idx = pageH > 0 ? Math.round(y / pageH) : 0;
         if (idx !== active) setActive(idx);
       },
@@ -98,17 +225,72 @@ export default function LandingScreen() {
     return m;
   }, [active]);
 
-  // Responsive breakpoints
   const isTablet = SCREEN_WIDTH >= 640;
   const isMobile = SCREEN_WIDTH < 480;
+
+  // --- NEW: Detect "long" screens (portrait, tall, or very narrow) ---
+  // If height is much greater than width, and width is not very large, treat as "long"
+  // You can tweak the ratio as needed for your app
+  const isLongScreen = SCREEN_HEIGHT / SCREEN_WIDTH > 1.25 && SCREEN_WIDTH < 700;
+
+  // Preload images
+  useEffect(() => {
+    const preloadImages = async () => {
+      try {
+        await Promise.all(
+          SECTIONS.map(s => 
+            ExpoImage.prefetch(s.image).catch(e => console.warn('Prefetch failed:', e))
+          )
+        );
+        
+        // Mark all images as loaded
+        const loadedState: ImagesLoadedState = {};
+        SECTIONS.forEach(s => {
+          loadedState[s.id] = true;
+        });
+        setImagesLoaded(loadedState);
+        setIsAppReady(true);
+      } catch (error) {
+        console.error('Error preloading images:', error);
+        setIsAppReady(true); // Still show the app even if images fail to load
+      }
+    };
+
+    preloadImages();
+  }, []);
+
+  // Handle image load errors with retry logic
+  const handleImageError = (id: string, url: string) => {
+    console.warn(`Image failed to load: ${id}`);
+    
+    // Mark as not loaded
+    setImagesLoaded(prev => ({ ...prev, [id]: false }));
+    
+    // Try to reload the image after a delay
+    setTimeout(() => {
+      ExpoImage.prefetch(url)
+        .then(() => {
+          setImagesLoaded(prev => ({ ...prev, [id]: true }));
+        })
+        .catch(e => console.warn('Retry prefetch failed:', e));
+    }, 2000);
+  };
+
+  // Show loading screen until app is ready
+  if (!isAppReady) {
+    return (
+      <View style={styles.loadingContainer}>
+        <View style={styles.loadingContent}>
+          <SoundWaveLoader />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.root, { backgroundColor: '#0B0F14' }]}>
       {/* Dot pager */}
-      <View style={[
-        styles.pager,
-        isMobile && { top: 16, right: 10, gap: 6 }
-      ]}>
+      <View style={[styles.pager, isMobile && { top: 16, right: 10, gap: 6 }]}>
         {SECTIONS.map((_, i) => (
           <View
             key={i}
@@ -129,13 +311,13 @@ export default function LandingScreen() {
         onScroll={onScroll}
         scrollEventThrottle={16}
         contentContainerStyle={{ height: pageH * SECTIONS.length }}
+        style={styles.scrollView}
       >
         {SECTIONS.map((s, idx) => {
           const inView = mounted.has(idx);
 
-          // Section entrance
+          // Section entrance anims
           const base = idx * pageH;
-          // Prevent division by zero in Animated.divide
           const safePageH = pageH > 0 ? pageH : 1;
           const progress = Animated.divide(
             Animated.subtract(scrollY, base),
@@ -150,13 +332,25 @@ export default function LandingScreen() {
             outputRange: [0, 1, 0],
           });
 
-          // Subtle parallax on image
+          // Parallax on image
           const imgTranslate = progress.interpolate({
             inputRange: [-1, 0, 1],
             outputRange: [-28, 0, 28],
           });
-          const isWide = isTablet;
+
+          // Layout
+          const isWide = isTablet && !isLongScreen;
           const reverse = isWide && idx % 2 === 1;
+
+          // Image sizing
+          const phoneMaxW = isWide ? SCREEN_WIDTH * 0.44 : SCREEN_WIDTH * 0.86;
+          const phoneW = Math.min(phoneMaxW, 640);
+          const phoneAR = 19.5 / 9;
+          const phoneH = phoneW * phoneAR;
+
+          // --- NEW: Disable image on long screens where text and image can't fit side by side ---
+          // If isLongScreen, do not render the image at all
+          const showImage = !isLongScreen;
 
           return (
             <View
@@ -169,6 +363,9 @@ export default function LandingScreen() {
                   paddingHorizontal: isMobile ? 10 : 20,
                   paddingVertical: isMobile ? 16 : 28,
                   gap: isMobile ? 14 : 22,
+                  // If image is hidden, center text card more
+                  alignItems: showImage ? 'center' : 'stretch',
+                  justifyContent: 'center',
                 },
               ]}
             >
@@ -182,36 +379,65 @@ export default function LandingScreen() {
                     maxWidth: isWide ? '48%' : '98%',
                     paddingHorizontal: isMobile ? 12 : 22,
                     paddingVertical: isMobile ? 14 : 22,
+                    alignSelf: showImage ? 'auto' : 'center',
                   },
                 ]}
               >
-                {!!s.eyebrow && <Text style={[styles.eyebrow, isMobile && { fontSize: 12, marginBottom: 6 }]}>{s.eyebrow}</Text>}
-                <Text style={[styles.title, isMobile && { fontSize: 22, lineHeight: 28, marginBottom: 7 }]}>{s.title}</Text>
-                <Text style={[styles.desc, isMobile && { fontSize: 14.5, lineHeight: 20 }]}>{s.description}</Text>
+                {!!s.eyebrow && (
+                  <Text style={[styles.eyebrow, isMobile && { fontSize: 12, marginBottom: 6 }]}>
+                    {s.eyebrow}
+                  </Text>
+                )}
+                <Text style={[styles.title, isMobile && { fontSize: 22, lineHeight: 28, marginBottom: 7 }]}>
+                  {s.title}
+                </Text>
+                <Text style={[styles.desc, isMobile && { fontSize: 14.5, lineHeight: 20 }]}>
+                  {s.description}
+                </Text>
 
                 {idx === 0 && (
-                  <TouchableOpacity activeOpacity={0.85} style={[styles.cta, isMobile && { marginTop: 10, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10 }]}>
+                  <TouchableOpacity
+                    activeOpacity={0.85}
+                    style={[styles.cta, isMobile && { marginTop: 10, paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10 }]}
+                  >
                     <Text style={[styles.ctaText, isMobile && { fontSize: 13 }]}>Try the Voice Orb</Text>
                   </TouchableOpacity>
                 )}
               </Animated.View>
 
-              {/* Image (lazy-mounted) */}
-              <Animated.Image
-                source={inView ? s.image : undefined}
-                resizeMode="contain"
-                accessibilityLabel={s.title}
-                style={[
-                  styles.phone,
-                  {
-                    transform: [{ translateY: imgTranslate }, { scale: isWide ? 1 : 0.98 }],
-                    maxWidth: isWide ? '44%' : isMobile ? '98%' : '86%',
+              {/* Image container */}
+              {showImage && (
+                <AnimatedView
+                  style={{
+                    width: phoneW,
+                    height: phoneH,
                     opacity: inView ? 1 : 0,
-                    height: isMobile ? '38%' : '70%',
+                    transform: [{ translateY: imgTranslate }, { scale: isWide ? 1 : 0.98 }],
                     marginTop: isMobile ? 8 : 0,
-                  },
-                ]}
-              />
+                  }}
+                >
+                  {inView && (
+                    <>
+                      <ExpoImage
+                        source={{ uri: s.image }}
+                        contentFit="contain"
+                        style={{ width: '100%', height: '100%' }}
+                        transition={250}
+                        cachePolicy="disk"
+                        onError={() => handleImageError(s.id, s.image)}
+                        onLoad={() => setImagesLoaded(prev => ({ ...prev, [s.id]: true }))}
+                      />
+                      
+                      {/* Loading placeholder */}
+                      {!imagesLoaded[s.id] && (
+                        <View style={[styles.placeholder, { width: '100%', height: '100%' }]}>
+                          <Text style={styles.placeholderText}>Loading image...</Text>
+                        </View>
+                      )}
+                    </>
+                  )}
+                </AnimatedView>
+              )}
             </View>
           );
         })}
@@ -228,7 +454,13 @@ export default function LandingScreen() {
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1 },
+  root: { 
+    flex: 1,
+    overflow: 'hidden',
+  },
+  scrollView: {
+    flex: 1,
+  },
   pager: {
     position: 'absolute',
     top: 28,
@@ -251,8 +483,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 22,
   },
-
-  // “Glass card” (no blur dependency) – soft translucent box
   card: {
     backgroundColor: 'rgba(255,255,255,0.06)',
     borderWidth: 1,
@@ -286,12 +516,6 @@ const styles = StyleSheet.create({
     fontSize: 16.5,
     lineHeight: 25,
   },
-
-  phone: {
-    width: '100%',
-    height: '70%',
-  },
-
   cta: {
     alignSelf: 'flex-start',
     marginTop: 16,
@@ -305,7 +529,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '800',
   },
-
   hintWrap: {
     position: 'absolute',
     bottom: 22,
@@ -318,5 +541,57 @@ const styles = StyleSheet.create({
     color: '#93A0B4',
     fontSize: 18,
     opacity: 0.9,
+  },
+  placeholder: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.1)',
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  placeholderText: {
+    color: '#8AA2FF',
+    fontSize: 14,
+  },
+  loadingContainer: {
+    flex: 1,
+    backgroundColor: '#0B0F14',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  soundWaveContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 40,
+  },
+  soundBar: {
+    width: 4,
+    backgroundColor: '#8AA2FF',
+    marginHorizontal: 2,
+    borderRadius: 2,
+  },
+  soundBar1: {
+    height: 10,
+  },
+  soundBar2: {
+    height: 15,
+  },
+  soundBar3: {
+    height: 20,
+  },
+  soundBar4: {
+    height: 15,
+  },
+  soundBar5: {
+    height: 10,
   },
 });
