@@ -6,14 +6,31 @@ import { Audio } from 'expo-av';
 
 const SERVER_URL = 'https://virtual-me-backend.vercel.app';
 
-const SAMPLE_TEXT =
-  `Hello! Welcome to the voice cloning feature. We're excited to have you try this out! Please speak with energy, emotion, and natural expression—let your feelings shine through. Imagine you're introducing yourself to a friend after a long time, sharing your excitement, curiosity, and warmth. Your voice will help us create a unique digital version of you, so don't be shy—laugh, pause, and let your personality come alive!
+const SAMPLE_TEXT = `
+English:
+Welcome to VirtualMe — your personal digital companion. 
+With VirtualMe, your voice becomes your presence, even when you are away. 
+It understands your schedule, shares updates with your loved ones, and speaks just like you. 
+Think of it as your trusted reflection, always ready to represent you with warmth and clarity.
 
-Urdu (Hyderabadi):
-آداب بھائی لوگ! سنو ذرا، یہ آواز کلوننگ کا کمال ہے ری! ادھر اپنے اسٹائل میں بولو، دل سے، جیسے چارمینار کے نیچے گپ مار رہے ہو۔ ہم سب مست ہیں، آپ بھی مست رہو، ہنستے رہو، اور اپنا خیال رکھو۔ حیدرآبادی انداز میں بولو، مصالحےدار، اپنائیت کے ساتھ!
+Hyderabadi Hindi/Urdu:
+آداب! یہ ہے VirtualMe — آپ کا اپنا ڈجیٹل ساتھی۔ 
+جب آپ مصروف رہتے ہیں، تو VirtualMe آپ کی جگہ بات کرتا ہے، 
+آپ کے گھر والوں کو حال چال بتاتا ہے، اور بالکل آپ ہی کے انداز میں جواب دیتا ہے۔ 
+سمجھو جیسے آپ کا اپنا影، جو ہر وقت آپ کے ساتھ ہے، اور آپ کی بات سب تک پہنچاتا ہے۔ 
+حیدرآباد کی گلیوں جیسا اپنائیت بھرا انداز، بس یہی ہے VirtualMe!
 
-Arabic:
-مرحباً يا أصدقاء! هذه فرصة رائعة لتجربة ميزة استنساخ الصوت. تحدثوا بحماس ودفء، وكأنكم تلتقون بأحبائكم بعد غياب طويل. دعوا مشاعركم تظهر في صوتكم—اضحكوا، عبّروا، وكونوا على طبيعتكم. نتمنى لكم يوماً سعيداً وراحة بال. اعتنوا بأنفسكم دائماً!`;
+Arabic (Surah Al-Fatiha):
+بِسْمِ اللَّهِ الرَّحْمَـٰنِ الرَّحِيمِ
+الْـحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ
+الرَّحْمَـٰنِ الرَّحِيمِ
+مَالِكِ يَوْمِ الدِّينِ
+إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ
+اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ
+صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ
+غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ
+آمِين
+`;
 
 export default function MobVoiceCloneScreen() {
   const [voiceId, setVoiceId] = useState<string | null>(null);
