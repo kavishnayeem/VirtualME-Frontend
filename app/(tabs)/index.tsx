@@ -11,8 +11,12 @@ import {
   Platform,
   NativeSyntheticEvent,
   NativeScrollEvent,
+  ScrollView,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
+
+// Only import these for web background
+const isWeb = Platform.OS === 'web';
 
 const { height: H0, width: W0 } = Dimensions.get('window');
 
@@ -193,28 +197,115 @@ const SoundWaveLoader = () => {
   );
 };
 
+// --- VANTA CELLS BACKGROUND FOR WEB ---
+declare global {
+  // eslint-disable-next-line no-var
+  interface Window {
+    VANTA?: any;
+  }
+}
+
+function VantaBackground() {
+  const vantaRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isWeb) return;
+    // Only run on web
+    let vantaEffect: any = null;
+
+    // Dynamically load scripts if not present
+    function loadScript(src: string) {
+      return new Promise<void>((resolve, reject) => {
+        if (document.querySelector(`script[src="${src}"]`)) {
+          resolve();
+          return;
+        }
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.onload = () => resolve();
+        script.onerror = reject;
+        document.body.appendChild(script);
+      });
+    }
+
+    let cancelled = false;
+
+    async function setupVanta() {
+      try {
+        await loadScript('https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js');
+        await loadScript('https://cdn.jsdelivr.net/npm/vanta@0.5.24/dist/vanta.cells.min.js');
+        if (typeof window !== 'undefined' && window.VANTA && window.VANTA.CELLS && vantaRef.current) {
+          vantaEffect = window.VANTA.CELLS({
+            el: vantaRef.current,
+            mouseControls: true,
+            touchControls: true,
+            gyroControls: false,
+            minHeight: 200.0,
+            minWidth: 200.0,
+            scale: 1.0,
+            color1: 0x202222,
+            color2: 0x344a86,
+            size: 3.7,
+            speed: 2.5,
+          });
+        }
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn('VANTA background failed to load', e);
+      }
+    }
+
+    setupVanta();
+
+    return () => {
+      cancelled = true;
+      if (vantaEffect && typeof vantaEffect.destroy === 'function') {
+        vantaEffect.destroy();
+      }
+    };
+  }, []);
+
+  // The background div is absolutely positioned and covers the whole screen
+  return (
+    <div
+      ref={vantaRef}
+      id="vanta-bg"
+      style={{
+        position: 'fixed',
+        zIndex: 0,
+        top: 0,
+        left: 0,
+        width: '100vw',
+        height: '100vh',
+        pointerEvents: 'none',
+        background: '#0B0F14',
+      }}
+    />
+  );
+}
+
 export default function LandingScreen() {
   const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = useWindowDimensions();
   const pageH = Math.max(SCREEN_HEIGHT, H0, 1);
+
+  // We'll use a ref to store the last scroll position for mouse/trackpad
   const scrollY = useRef(new Animated.Value(0)).current;
+  const scrollViewRef = useRef<ScrollView | null>(null);
 
   // Which section index are we near?
   const [active, setActive] = useState(0);
   const [imagesLoaded, setImagesLoaded] = useState<ImagesLoadedState>({});
   const [isAppReady, setIsAppReady] = useState(false);
-  
-  // Fix for error 1: Properly type the scroll event
-  const onScroll = Animated.event(
-    [{ nativeEvent: { contentOffset: { y: scrollY } } }],
-    {
-      useNativeDriver: false,
-      listener: (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-        const y = e.nativeEvent.contentOffset.y;
-        const idx = pageH > 0 ? Math.round(y / pageH) : 0;
-        if (idx !== active) setActive(idx);
-      },
-    }
-  );
+
+  // --- Fix: Use onScroll to update Animated.Value for all input types (touch, mouse, trackpad) ---
+  // This ensures the animation always works, regardless of input device.
+  const handleScroll = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = e.nativeEvent.contentOffset.y;
+    scrollY.setValue(y); // This triggers animation for all input types
+    const idx = pageH > 0 ? Math.round(y / pageH) : 0;
+    if (idx !== active) setActive(idx);
+  };
 
   // Only mount current & neighbors for perf
   const mounted = useMemo(() => {
@@ -289,6 +380,9 @@ export default function LandingScreen() {
 
   return (
     <View style={[styles.root, { backgroundColor: '#0B0F14' }]}>
+      {/* VANTA CELLS background for web only */}
+      {isWeb && <VantaBackground />}
+
       {/* Dot pager */}
       <View style={[styles.pager, isMobile && { top: 16, right: 10, gap: 6 }]}>
         {SECTIONS.map((_, i) => (
@@ -303,15 +397,25 @@ export default function LandingScreen() {
         ))}
       </View>
 
-      <Animated.ScrollView
+      <ScrollView
+        ref={scrollViewRef}
         pagingEnabled
         snapToInterval={pageH}
         decelerationRate="fast"
         showsVerticalScrollIndicator={false}
-        onScroll={onScroll}
+        onScroll={handleScroll}
         scrollEventThrottle={16}
         contentContainerStyle={{ height: pageH * SECTIONS.length }}
         style={styles.scrollView}
+        // Enable wheel events for web (for mouse/trackpad scroll)
+        // This is a no-op on native, but on web it ensures wheel events are handled
+        // @ts-ignore
+        onWheel={Platform.OS === 'web' ? (e: any) => {
+          if (scrollViewRef.current && e.deltaY) {
+            // Let RN handle the scroll, but we could force update scrollY here if needed
+            // (Not needed if onScroll is working)
+          }
+        } : undefined}
       >
         {SECTIONS.map((s, idx) => {
           const inView = mounted.has(idx);
@@ -441,7 +545,7 @@ export default function LandingScreen() {
             </View>
           );
         })}
-      </Animated.ScrollView>
+      </ScrollView>
 
       {/* Scroll hint on first screen only */}
       {active === 0 && (
@@ -457,6 +561,7 @@ const styles = StyleSheet.create({
   root: { 
     flex: 1,
     overflow: 'hidden',
+    // The background is handled by VantaBackground for web, so no need to set backgroundColor here
   },
   scrollView: {
     flex: 1,

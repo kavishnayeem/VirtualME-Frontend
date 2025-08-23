@@ -1,4 +1,3 @@
-
 // Mobile3DOrb.native.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, LayoutChangeEvent, Pressable, ScrollView } from 'react-native';
@@ -21,6 +20,41 @@ const ORB_DETAIL = 10;
 
 // ========= EMA smoothing =========
 const EMA_ALPHA = 0.22;
+
+// ========= Conversation ID persistence (no extra deps) =========
+const CID_FILE = `${FileSystem.cacheDirectory}vm_cid.txt`;
+let CID_MEMO: string | null = null;
+
+function genCid(): string {
+  // Prefer crypto.randomUUID if available on RN (Hermes sometimes polyfills)
+  // @ts-ignore
+  const uuid = (global as any)?.crypto?.randomUUID?.();
+  if (uuid && typeof uuid === 'string') return uuid;
+  return `cid_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+}
+
+async function ensureConversationIdAsync(externalId?: string): Promise<string> {
+  if (externalId && externalId.trim()) return externalId.trim();
+  if (CID_MEMO) return CID_MEMO;
+
+  try {
+    const info = await FileSystem.getInfoAsync(CID_FILE);
+    if (info.exists) {
+      const stored = await FileSystem.readAsStringAsync(CID_FILE);
+      if (stored && stored.trim()) {
+        CID_MEMO = stored.trim();
+        return CID_MEMO;
+      }
+    }
+  } catch {}
+
+  const fresh = genCid();
+  try {
+    await FileSystem.writeAsStringAsync(CID_FILE, fresh, { encoding: FileSystem.EncodingType.UTF8 });
+  } catch {}
+  CID_MEMO = fresh;
+  return fresh;
+}
 
 // ========= Helpers =========
 const base64ToInt16 = (b64: string): Int16Array => {
@@ -51,19 +85,55 @@ const arrayBufferToBase64 = (ab: ArrayBuffer): string => {
   const bytes = new Uint8Array(ab);
   let binary = '';
   for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+  // RN doesn’t have btoa globally; use Buffer polyfill if present, otherwise a quick fallback:
   // @ts-ignore
-  return typeof btoa === 'function' ? btoa(binary) : Buffer.from(binary, 'binary').toString('base64');
+  if (typeof btoa === 'function') return btoa(binary);
+  // @ts-ignore
+  if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('base64');
+  // Fallback (rare): manual
+  const base64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  let result = '', i2 = 0;
+  for (; i2 < bytes.length; i2 += 3) {
+    const a = bytes[i2];
+    const b = bytes[i2 + 1] ?? 0;
+    const c = bytes[i2 + 2] ?? 0;
+    result += base64chars[a >> 2]
+           +  base64chars[((a & 3) << 4) | (b >> 4)]
+           +  (i2 + 1 < bytes.length ? base64chars[((b & 15) << 2) | (c >> 6)] : '=')
+           +  (i2 + 2 < bytes.length ? base64chars[c & 63] : '=');
+  }
+  return result;
 };
 
-type Mobile3DOrbProps = { intensity?: number };
+type Mobile3DOrbProps = {
+  intensity?: number;
+  profileName?: string;     // defaults: "Kavish Nayeem"
+  preferredName?: string;   // defaults: "Kavish"
+  voiceId?: string;         // optional, backend validates/falls back
+  conversationId?: string;  // optional external control
+  hints?: string;           // optional short context
+};
 
-const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
+const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
+  intensity = 0.6,
+  profileName = 'Kavish Nayeem',
+  preferredName = 'Kavish',
+  voiceId,
+  conversationId,
+  hints,
+}) => {
   // UI
   const [isRecording, setIsRecording] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const [savedUri, setSavedUri] = useState<string>('');
   const [status, setStatus] = useState<string>('Tap the orb to start/stop.');
   const [isBusy, setIsBusy] = useState(false);
+
+  // show server meta
+  const [serverLang, setServerLang] = useState<string | null>(null);
+  const [serverVoiceId, setServerVoiceId] = useState<string | null>(null);
+  const [serverConvoId, setServerConvoId] = useState<string | null>(null);
+  const [lastTranscript, setLastTranscript] = useState<string | null>(null);
 
   // playback
   const soundRef = useRef<Audio.Sound | null>(null);
@@ -154,28 +224,52 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
     try {
       setIsBusy(true);
       setStatus('Uploading to backend…');
-  
+
+      // guarantee string-only fields
+      const cid: string = await ensureConversationIdAsync(conversationId);
+      const profile: string = (profileName ?? '').toString() || 'Kavish Nayeem';
+      const preferred: string = (preferredName ?? '').toString() || 'Kavish';
+      const vId: string | undefined = typeof voiceId === 'string' && voiceId.trim() ? voiceId.trim() : undefined;
+      const hintStr: string | undefined = typeof hints === 'string' && hints.trim() ? hints.trim() : undefined;
+
       const form = new FormData();
       form.append('audio', { uri, name: 'audio.wav', type: 'audio/wav' } as any);
-  
+      form.append('conversationId', cid);
+      form.append('profileName', profile);
+      form.append('preferredName', preferred);
+      if (vId) form.append('voiceId', vId);
+      if (hintStr) form.append('hints', hintStr);
+
       const resp = await fetch(`${BACKEND_URL}/voice`, { method: 'POST', body: form });
-  
+
       if (!resp.ok) {
         const txt = await resp.text();
         setStatus(`Server error: ${txt.slice(0, 160)}`);
         return;
       }
-  
-      // Read the text reply (UTF-8 safe via encodeURIComponent)
+
+      // Read headers for metadata (UTF-8 safe via encodeURIComponent on server)
       const replyHeader = resp.headers.get('x-reply-text');
+      const langHeader = resp.headers.get('x-language');
+      const voiceHeader = resp.headers.get('x-voice-id');
+      const convoHeader = resp.headers.get('x-conversation-id');
+      const transcriptHeader = resp.headers.get('x-transcript');
+
       const replyText = replyHeader ? decodeURIComponent(replyHeader) : '';
+      const tText = transcriptHeader ? decodeURIComponent(transcriptHeader) : '';
+
+      setServerLang(langHeader ? decodeURIComponent(langHeader) : null);
+      setServerVoiceId(voiceHeader ? decodeURIComponent(voiceHeader) : null);
+      setServerConvoId(convoHeader ? decodeURIComponent(convoHeader) : cid);
+      setLastTranscript(tText || null);
+
       if (replyText) setStatus(`Captions: ${replyText}`); else setStatus('Downloading reply…');
-  
+
       const ab = await resp.arrayBuffer();
       const b64 = arrayBufferToBase64(ab);
       const outPath = `${FileSystem.cacheDirectory}reply-${Date.now()}.wav`;
       await FileSystem.writeAsStringAsync(outPath, b64, { encoding: FileSystem.EncodingType.Base64 });
-  
+
       const { sound } = await Audio.Sound.createAsync({ uri: outPath });
       soundRef.current = sound;
       await sound.playAsync();
@@ -184,8 +278,7 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
     } finally {
       setIsBusy(false);
     }
-  }, []);
-  
+  }, [conversationId, hints, preferredName, profileName, voiceId]);
 
   // ========= Stop recording =========
   const stopRecording = useCallback(async () => {
@@ -380,9 +473,21 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({ intensity = 0.6 }) => {
 
       <View style={styles.fileBox}>
         <Text style={styles.fileTitle}>Status</Text>
-        <ScrollView style={{ maxHeight: 120 }}>
+        <ScrollView style={{ maxHeight: 140 }}>
           <Text style={styles.filePath}>{status}</Text>
-          
+          {(serverLang || serverVoiceId || serverConvoId || lastTranscript) ? (
+            <View style={{ marginTop: 8 }}>
+              {serverLang && <Text style={styles.metaText}>Language: {serverLang}</Text>}
+              {serverVoiceId && <Text style={styles.metaText}>Voice: {serverVoiceId}</Text>}
+              {serverConvoId && <Text style={styles.metaText}>Conversation: {serverConvoId}</Text>}
+              {lastTranscript ? (
+                <>
+                  <Text style={[styles.metaText, { marginTop: 6, fontWeight: '600' }]}>Heard:</Text>
+                  <Text style={[styles.metaText, { color: '#bbb' }]}>{lastTranscript}</Text>
+                </>
+              ) : null}
+            </View>
+          ) : null}
         </ScrollView>
       </View>
     </View>
@@ -406,8 +511,9 @@ const styles = StyleSheet.create({
   fileBox: {
     marginTop: 12, width: '90%',
     backgroundColor: 'rgba(0,0,0,0.07)', borderRadius: 8, padding: 8,
-    minHeight: 60, maxHeight: 160,
+    minHeight: 60, maxHeight: 180,
   },
   fileTitle: { fontWeight: 'bold', color: '#333', marginBottom: 6, fontSize: 13 },
   filePath: { color: '#ddd' },
+  metaText: { color: '#999', fontSize: 12 },
 });

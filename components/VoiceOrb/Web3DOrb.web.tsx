@@ -2,20 +2,74 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { createNoise3D } from 'simplex-noise';
 
-type Props = { intensity?: number };
+type Props = {
+  intensity?: number;
+
+  /** Persona fields passed to backend (optional; defaults match your backend) */
+  profileName?: string;      // e.g., "Kavish Nayeem"
+  preferredName?: string;    // e.g., "Kavish"
+  /** Voice ID selection (optional; backend will validate & fallback) */
+  voiceId?: string;
+  /** Optional external convo id; if not provided, we persist one in localStorage */
+  conversationId?: string;
+  /** Optional extra context you want model to consider (short text) */
+  hints?: string;
+};
 
 // ========= CONFIG: point this to your server =========
 const BACKEND_URL = 'https://virtual-me-voice-agent.vercel.app'; // <-- change to your LAN IP or tunnel URL
-
 const ORB_RADIUS = 7; // Keep orb radius constant
 
-const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
+// Persisted conversation id so calls thread together
+const CONVO_KEY = 'vm_conversation_id';
+
+function ensureConversationId(externalId?: string): string {
+  // prefer caller-provided id
+  if (externalId && externalId.trim()) return externalId.trim();
+
+  // try stored id
+  let stored = '';
+  try {
+    stored = localStorage.getItem(CONVO_KEY) ?? '';
+  } catch {
+    stored = '';
+  }
+  if (stored) return stored;
+
+  // create a new one
+  const fresh =
+    (typeof crypto !== 'undefined' && typeof (crypto as any).randomUUID === 'function')
+      ? (crypto as any).randomUUID()
+      : `cid_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+
+  try {
+    localStorage.setItem(CONVO_KEY, fresh); // fresh is string
+  } catch { /* ignore */ }
+
+  return fresh;
+}
+
+
+const Web3DOrb: React.FC<Props> = ({
+  intensity = 0.6,
+  profileName = 'Kavish Nayeem',
+  preferredName = 'Kavish',
+  voiceId,
+  conversationId,
+  hints,
+}) => {
   const [isListening, setIsListening] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const [currentVolume, setCurrentVolume] = useState(0);
   const [isBusy, setIsBusy] = useState(false);
   const [status, setStatus] = useState<string>('Tap the orb to start/stop.');
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+
+  // New: server-returned metadata (useful for debugging / captions)
+  const [serverLang, setServerLang] = useState<string | null>(null);
+  const [serverVoiceId, setServerVoiceId] = useState<string | null>(null);
+  const [serverConvoId, setServerConvoId] = useState<string | null>(null);
+  const [lastTranscript, setLastTranscript] = useState<string | null>(null);
 
   // New: state for output audio volume (for orb vibration)
   const [outputVolume, setOutputVolume] = useState(0);
@@ -118,7 +172,7 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     rendererRef.current = renderer;
 
-    const icosahedronGeometry = new THREE.IcosahedronGeometry(ORB_RADIUS, 11);
+    const icosahedronGeometry = new THREE.IcosahedronGeometry(ORB_RADIUS, 7);
     const lambertMaterial = new THREE.MeshLambertMaterial({
       color: 0xffffff,
       wireframe: true,
@@ -235,10 +289,11 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
       let color;
       if (isSpeaking && outputVolume > 0.01) {
         color = new THREE.Color(`hsl(${200 + outputVolume * 40}, 100%, 60%)`);
+        (mesh.material as THREE.MeshLambertMaterial).color = color;
       } else {
         color = new THREE.Color(`hsl(${volume * 120}, 100%, 50%)`);
+        (mesh.material as THREE.MeshLambertMaterial).color = color;
       }
-      (mesh.material as THREE.MeshLambertMaterial).color = color;
     } else {
       (mesh.material as THREE.MeshLambertMaterial).color.set(0xffffff);
     }
@@ -246,7 +301,6 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
 
   // --- Audio recording and backend upload logic ---
 
-  // Start/stop recording and handle backend
   const handleOrbClick = async () => {
     setMicError(null);
 
@@ -277,6 +331,14 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
             const formData = new FormData();
             formData.append('audio', audioBlob, 'audio.wav');
 
+            // NEW: attach persona, voice, convo, hints
+            const cid = ensureConversationId(conversationId);
+            formData.append('conversationId', cid);
+            formData.append('profileName', profileName);
+            formData.append('preferredName', preferredName);
+            if (voiceId) formData.append('voiceId', voiceId);
+            if (hints) formData.append('hints', hints);
+
             const resp = await fetch(`${BACKEND_URL}/voice`, {
               method: 'POST',
               body: formData,
@@ -289,9 +351,21 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
               return;
             }
 
-            // Read the text reply (UTF-8 safe via encodeURIComponent)
+            // Read headers for metadata
             const replyHeader = resp.headers.get('x-reply-text');
+            const langHeader = resp.headers.get('x-language');
+            const voiceHeader = resp.headers.get('x-voice-id');
+            const convoHeader = resp.headers.get('x-conversation-id');
+            const transcriptHeader = resp.headers.get('x-transcript');
+
             const replyText = replyHeader ? decodeURIComponent(replyHeader) : '';
+            const serverTranscript = transcriptHeader ? decodeURIComponent(transcriptHeader) : '';
+
+            setServerLang(langHeader ? decodeURIComponent(langHeader) : null);
+            setServerVoiceId(voiceHeader ? decodeURIComponent(voiceHeader) : null);
+            setServerConvoId(convoHeader ? decodeURIComponent(convoHeader) : cid || null);
+            setLastTranscript(serverTranscript || null);
+
             if (replyText) setStatus(`Captions: ${replyText}`);
             else setStatus('Downloading reply…');
 
@@ -360,22 +434,8 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
     let ctx: AudioContext | null = null;
     let analyser: AnalyserNode | null = null;
     let dataArray: Uint8Array | null = null;
-    let rafId: number | null = null;
-    let speaking = false;
-
-    // Helper to disconnect all nodes from the audio element
-    // (not needed, see below)
 
     const setup = () => {
-      // Only create a MediaElementAudioSourceNode ONCE per audio element per page lifetime
-      // If already created, reuse the same AudioContext and AnalyserNode
-      // We'll use a hidden property on the audio element to store the source node
-      // But since we want to analyze each new audio, we must create a new <audio> element each time
-
-      // Instead, we will force the <audio> element to be replaced on each new audioUrl
-      // (see below in the JSX)
-
-      // But for safety, check if we've already created a source node for this element
       if (audioElementSourceCreatedRef.current) {
         setMicError(
           "Audio playback error: This browser does not allow connecting the same <audio> element to multiple AudioContexts. Please reload the page."
@@ -388,6 +448,7 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
       ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
       analyser = ctx.createAnalyser();
       analyser.fftSize = 256;
+
       let source: MediaElementAudioSourceNode;
       try {
         source = ctx.createMediaElementSource(audioEl);
@@ -416,14 +477,10 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
           }
           const rms = Math.sqrt(sum / dataArray.length);
           setOutputVolume(Math.min(1, rms * 2.5));
-          // If audio is playing, set isSpeaking
-          if (!speaking && !audioEl.paused && !audioEl.ended) {
-            speaking = true;
+
+          if (!audioEl.paused && !audioEl.ended) {
             setIsSpeaking(true);
-          }
-          // If audio ended, stop speaking
-          if (speaking && (audioEl.ended || audioEl.paused)) {
-            speaking = false;
+          } else {
             setIsSpeaking(false);
             setOutputVolume(0);
           }
@@ -433,16 +490,7 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
       update();
     };
 
-    // Play audio automatically
-    const playAudio = () => {
-      // Some browsers require user interaction, but we try anyway
-      audioEl.currentTime = 0;
-      audioEl.play().catch(() => {});
-    };
-
-    // Setup when metadata loaded
     const onLoaded = () => {
-      // Before setting up, ensure any previous context is closed
       if (outputAudioContextRef.current) {
         outputAudioContextRef.current.close();
         outputAudioContextRef.current = null;
@@ -457,11 +505,11 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
       setOutputVolume(0);
 
       setup();
-      playAudio();
+      audioEl.currentTime = 0;
+      audioEl.play().catch(() => {});
     };
 
     audioEl.addEventListener('loadedmetadata', onLoaded);
-    audioEl.addEventListener('play', () => setIsSpeaking(true));
     audioEl.addEventListener('ended', () => {
       setIsSpeaking(false);
       setOutputVolume(0);
@@ -471,7 +519,6 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
       setOutputVolume(0);
     });
 
-    // If already loaded, setup immediately
     if (audioEl.readyState >= 1) {
       onLoaded();
     }
@@ -490,7 +537,6 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
       }
       setIsSpeaking(false);
       setOutputVolume(0);
-      // Reset the flag so a new <audio> element can be connected
       audioElementSourceCreatedRef.current = false;
     };
   }, [audioUrl]);
@@ -518,15 +564,10 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
         cancelAnimationFrame(outputAnimationFrameRef.current);
         outputAnimationFrameRef.current = null;
       }
-      // Reset the flag so a new <audio> element can be connected
       audioElementSourceCreatedRef.current = false;
     };
     // eslint-disable-next-line
   }, []);
-
-  // To avoid the MediaElementAudioSourceNode error, we must create a new <audio> element for each audioUrl.
-  // We'll use a key prop on the <audio> element to force React to create a new element each time.
-  // This ensures that each <audio> is only ever connected to one MediaElementAudioSourceNode.
 
   return (
     <div style={{ position: 'relative', width: '100%', maxWidth: 500 }}>
@@ -540,6 +581,7 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
           filter: isSpeaking ? 'drop-shadow(0 0 24px #4af)' : undefined,
           transition: 'filter 0.2s',
         }}
+        title="Tap to start/stop"
       />
       {micError && (
         <div
@@ -566,8 +608,7 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
           backgroundColor: 'rgba(0,0,0,0.07)',
           borderRadius: 8,
           padding: 8,
-          minHeight: 60,
-          maxHeight: 160,
+          minHeight: 70,
           color: '#333',
           fontSize: 14,
         }}
@@ -580,22 +621,29 @@ const Web3DOrb: React.FC<Props> = ({ intensity = 0.6 }) => {
             <span role="img" aria-label="speaking">🔊</span> Orb is speaking...
           </div>
         )}
+        {(serverLang || serverVoiceId || serverConvoId) && (
+          <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
+            {serverLang && <div>Language: {serverLang}</div>}
+            {serverVoiceId && <div>Voice: {serverVoiceId}</div>}
+            {serverConvoId && <div>Conversation: {serverConvoId}</div>}
+            {lastTranscript && (
+              <div style={{ marginTop: 6 }}>
+                <div style={{ fontWeight: 600 }}>Heard:</div>
+                <div style={{ color: '#555' }}>{lastTranscript}</div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
       {/* Hidden audio element for output, auto-play */}
       <audio
-        key={audioUrl || 'none'} // This forces a new <audio> element for each audioUrl
+        key={audioUrl || 'none'} // Force a new <audio> element each time (avoids MediaElementAudioSource reuse issue)
         ref={audioElementRef}
         src={audioUrl || undefined}
         style={{ display: 'none' }}
         autoPlay
         controls={false}
       />
-      {/* Optionally, show a visible player for debugging */}
-      {/* {audioUrl && (
-        <div style={{ marginTop: 10, textAlign: 'center' }}>
-          <audio src={audioUrl} controls style={{ width: '100%' }} />
-        </div>
-      )} */}
     </div>
   );
 };
