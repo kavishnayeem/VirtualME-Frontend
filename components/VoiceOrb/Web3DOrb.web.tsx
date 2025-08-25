@@ -154,7 +154,7 @@ const Web3DOrb: React.FC<Props> = ({
     };
   }, [isListening]);
 
-  // Orb rendering
+  // Orb rendering and animation (improved for smoothness)
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -169,8 +169,12 @@ const Web3DOrb: React.FC<Props> = ({
     groupRef.current = group;
     cameraRef.current = camera;
 
+    // --- Fix for blurry orb on mobile/small screens: set renderer pixelRatio to devicePixelRatio ---
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     rendererRef.current = renderer;
+
+    // Set pixel ratio to devicePixelRatio for crisp rendering on high-DPI screens
+    renderer.setPixelRatio(window.devicePixelRatio || 1);
 
     const icosahedronGeometry = new THREE.IcosahedronGeometry(ORB_RADIUS, 7);
     const lambertMaterial = new THREE.MeshLambertMaterial({
@@ -195,24 +199,41 @@ const Web3DOrb: React.FC<Props> = ({
 
     containerRef.current.appendChild(renderer.domElement);
     const size = Math.min(containerRef.current.clientWidth, 500);
-    renderer.setSize(size, size);
+    renderer.setSize(size, size, false); // false disables style auto update, we control via CSS
+
+    // Also set canvas style width/height to 100% for responsive scaling
+    renderer.domElement.style.width = '100%';
+    renderer.domElement.style.height = '100%';
+    renderer.domElement.style.display = 'block';
 
     const onResize = () => {
       if (!cameraRef.current || !rendererRef.current || !containerRef.current) return;
       const s = Math.min(containerRef.current.clientWidth, 500);
       cameraRef.current.aspect = 1;
       cameraRef.current.updateProjectionMatrix();
-      rendererRef.current.setSize(s, s);
+      // Update pixel ratio on resize (in case devicePixelRatio changes, e.g. zoom)
+      rendererRef.current.setPixelRatio(window.devicePixelRatio || 1);
+      rendererRef.current.setSize(s, s, false);
     };
 
-    const renderLoop = () => {
+    // Use time-based rotation for smoothness
+    let lastTime = performance.now();
+
+    const renderLoop = (now?: number) => {
       if (!groupRef.current || !rendererRef.current || !sceneRef.current || !cameraRef.current) return;
-      groupRef.current.rotation.y += 0.003;
+      const currentTime = now !== undefined ? now : performance.now();
+      const delta = (currentTime - lastTime) / 1000; // seconds
+      lastTime = currentTime;
+
+      // Use a fixed rotation speed per second for smoothness
+      const ROTATION_SPEED = 0.5; // radians per second
+      groupRef.current.rotation.y += ROTATION_SPEED * delta;
+
       rendererRef.current.render(sceneRef.current, cameraRef.current);
       animationFrameRef.current = requestAnimationFrame(renderLoop);
     };
 
-    renderLoop();
+    animationFrameRef.current = requestAnimationFrame(renderLoop);
     window.addEventListener('resize', onResize);
 
     return () => {
@@ -259,6 +280,7 @@ const Web3DOrb: React.FC<Props> = ({
     const geometry = mesh.geometry as THREE.IcosahedronGeometry;
     const positionAttribute = (geometry as any).getAttribute('position') as THREE.BufferAttribute;
 
+    // Only update if volume or listening state changes, to avoid unnecessary computation
     for (let i = 0; i < positionAttribute.count; i++) {
       const baseX = original[i * 3];
       const baseY = original[i * 3 + 1];

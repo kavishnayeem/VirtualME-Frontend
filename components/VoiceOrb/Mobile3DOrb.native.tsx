@@ -16,7 +16,7 @@ const BACKEND_URL = 'https://virtual-me-voice-agent.vercel.app'; // <-- change t
 
 // ========= Orb constants =========
 const ORB_RADIUS = 7;
-const ORB_DETAIL = 10;
+const ORB_DETAIL = 7;
 
 // ========= EMA smoothing =========
 const EMA_ALPHA = 0.22;
