@@ -1,6 +1,6 @@
 // app/(tabs)/menu/index.tsx
-import React, { useEffect, useRef } from 'react';
-import { Pressable, StyleSheet, View, Platform } from 'react-native';
+import React, { useRef, useEffect } from 'react';
+import { Pressable, StyleSheet, View, Platform, Animated, Dimensions } from 'react-native';
 import { Link, type Href } from 'expo-router';
 import { ThemedText } from '../../../components/ThemedText';
 import { ThemedView } from '../../../components/ThemedView';
@@ -54,9 +54,184 @@ const MENU_ITEMS: Array<{
   },
 ];
 
-// --- VANTA TOPOLOGY BACKGROUND FOR WEB ---
+// --- Animated Creative Moving Background for Mobile ---
 const isWeb = Platform.OS === 'web';
 
+function randomBetween(min: number, max: number) {
+  return Math.random() * (max - min) + min;
+}
+
+function AnimatedMobileBackground() {
+  // Only render on mobile
+  if (isWeb) return null;
+
+  // We'll animate a set of colored, blurred, glowing orbs and lines moving in different directions
+  const { width, height } = Dimensions.get('window');
+
+  // Orbs: more, with different sizes, colors, and movement patterns
+  const orbConfigs = Array.from({ length: 7 }).map((_, i) => ({
+    size: randomBetween(70, 180),
+    color: [
+      'rgba(78,142,150,0.18)',
+      'rgba(255,255,255,0.10)',
+      'rgba(78,142,150,0.13)',
+      'rgba(255,255,255,0.08)',
+      'rgba(0,255,200,0.10)',
+      'rgba(255,0,200,0.10)',
+      'rgba(0,100,255,0.10)',
+    ][i % 7],
+    left: randomBetween(0, width * 0.8),
+    top: randomBetween(0, height * 0.8),
+    duration: randomBetween(6000, 12000),
+    delay: randomBetween(0, 2000),
+    direction: Math.random() > 0.5 ? 1 : -1,
+    blur: randomBetween(10, 30),
+    glow: i % 2 === 0,
+  }));
+
+  // Lines: animated, semi-transparent, moving diagonally
+  const lineConfigs = Array.from({ length: 4 }).map((_, i) => ({
+    width: randomBetween(width * 0.5, width * 0.9),
+    height: 2 + Math.floor(Math.random() * 2),
+    color: [
+      'rgba(78,142,150,0.12)',
+      'rgba(255,255,255,0.09)',
+      'rgba(0,255,200,0.08)',
+      'rgba(255,0,200,0.08)',
+    ][i % 4],
+    left: randomBetween(0, width * 0.5),
+    top: randomBetween(0, height * 0.9),
+    duration: randomBetween(7000, 14000),
+    delay: randomBetween(0, 2000),
+    angle: randomBetween(-30, 30),
+    direction: Math.random() > 0.5 ? 1 : -1,
+  }));
+
+  // Each orb and line gets its own Animated.Value
+  const orbAnims = useRef(orbConfigs.map(() => new Animated.Value(0))).current;
+  const lineAnims = useRef(lineConfigs.map(() => new Animated.Value(0))).current;
+
+  useEffect(() => {
+    orbAnims.forEach((anim, i) => {
+      const animate = () => {
+        Animated.sequence([
+          Animated.timing(anim, {
+            toValue: 1,
+            duration: orbConfigs[i].duration,
+            delay: orbConfigs[i].delay,
+            useNativeDriver: true,
+          }),
+          Animated.timing(anim, {
+            toValue: 0,
+            duration: orbConfigs[i].duration,
+            delay: 0,
+            useNativeDriver: true,
+          }),
+        ]).start(() => animate());
+      };
+      animate();
+    });
+    lineAnims.forEach((anim, i) => {
+      const animate = () => {
+        Animated.sequence([
+          Animated.timing(anim, {
+            toValue: 1,
+            duration: lineConfigs[i].duration,
+            delay: lineConfigs[i].delay,
+            useNativeDriver: true,
+          }),
+          Animated.timing(anim, {
+            toValue: 0,
+            duration: lineConfigs[i].duration,
+            delay: 0,
+            useNativeDriver: true,
+          }),
+        ]).start(() => animate());
+      };
+      animate();
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill} collapsable={false}>
+      {/* Orbs */}
+      {orbConfigs.map((c, i) => {
+        // Animate vertical and horizontal movement, and a subtle scale pulse
+        const translateY = orbAnims[i].interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, c.direction * c.size * 0.4],
+        });
+        const translateX = orbAnims[i].interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, -c.direction * c.size * 0.3],
+        });
+        const scale = orbAnims[i].interpolate({
+          inputRange: [0, 0.5, 1],
+          outputRange: [1, 1.08, 1],
+        });
+        return (
+          <Animated.View
+            key={'orb-' + i}
+            style={{
+              position: 'absolute',
+              left: c.left,
+              top: c.top,
+              width: c.size,
+              height: c.size,
+              borderRadius: c.size / 2,
+              backgroundColor: c.color,
+              opacity: 1,
+              transform: [{ translateY }, { translateX }, { scale }],
+              // Add shadow/glow for some orbs
+              shadowColor: c.glow ? '#4e8e96' : undefined,
+              shadowOffset: c.glow ? { width: 0, height: 0 } : undefined,
+              shadowOpacity: c.glow ? 0.5 : 0,
+              shadowRadius: c.glow ? 18 : 0,
+              // Blur effect (Android/iOS only, not web)
+              ...(Platform.OS !== 'web'
+                ? { 
+                    // @ts-ignore
+                    filter: `blur(${c.blur}px)` // ignored on native, but for completeness
+                  }
+                : {}),
+            }}
+          />
+        );
+      })}
+      {/* Lines */}
+      {lineConfigs.map((l, i) => {
+        // Animate diagonal movement
+        const translate = lineAnims[i].interpolate({
+          inputRange: [0, 1],
+          outputRange: [0, l.direction * 60],
+        });
+        return (
+          <Animated.View
+            key={'line-' + i}
+            style={{
+              position: 'absolute',
+              left: l.left,
+              top: l.top,
+              width: l.width,
+              height: l.height,
+              backgroundColor: l.color,
+              borderRadius: 2,
+              opacity: 0.7,
+              transform: [
+                { translateX: translate },
+                { translateY: translate },
+                { rotateZ: `${l.angle}deg` },
+              ],
+            }}
+          />
+        );
+      })}
+    </View>
+  );
+}
+
+// --- VANTA TOPOLOGY BACKGROUND FOR WEB ---
 function VantaTopologyBackground() {
   const vantaRef = useRef<HTMLDivElement>(null);
 
@@ -167,6 +342,7 @@ const Item = ({
 export default function MenuScreen() {
   return (
     <ThemedView style={styles.container}>
+      <AnimatedMobileBackground />
       <VantaTopologyBackground />
       <ThemedText type="title" style={styles.title}>Menu</ThemedText>
       <View style={styles.list}>
@@ -185,7 +361,7 @@ export default function MenuScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, gap: 12 },
+  container: { flex: 1, padding: 20, gap: 12, backgroundColor: '#000' },
   title: { textAlign: 'center', marginTop: 16, marginBottom: 12 },
   list: { gap: 12 },
   item: { padding: 16, borderRadius: 14, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255, 255, 255, 0.61)' },

@@ -12,21 +12,23 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.anonymous.virtualme",   
       "infoPlist": {
-        "NSSpeechRecognitionUsageDescription": "Allow VirtualMe to transcribe your voice into captions.",
-        "NSMicrophoneUsageDescription": "Allow VirtualMe to access your microphone to visualize and transcribe voice."
+        "NSLocationWhenInUseUsageDescription": "Allow VirtualMe to access your location to provide 'where are you' features for your trusted contacts.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow VirtualMe to update your location in the background.",
+        "UIBackgroundModes": ["location", "remote-notification"]
       }
     },
 
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/logo.jpg",
+        "foregroundImage": "./assets/images/VM.png",
         "backgroundColor": "#ffffff"
       },
       "permissions": [
-        "RECORD_AUDIO",
-        "MODIFY_AUDIO_SETTINGS",
-        "ACTIVITY_RECOGNITION", 
-        "INTERNET"
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_BACKGROUND_LOCATION",
+        "FOREGROUND_SERVICE",
+        "POST_NOTIFICATIONS"
       ],
       "edgeToEdgeEnabled": true,
       "package": "com.anonymous.virtualme"           
@@ -35,7 +37,7 @@
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png",
+      "favicon": "./assets/images/VM.png",
       "build": {
         "babel": {
           "include": ["expo-image"]
@@ -64,7 +66,15 @@
           "iosPermissions": ["Microphone"],
           "androidPermissions": ["RECORD_AUDIO"]
         }
-      ]
+      ],
+      [
+      "expo-location",
+        {
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      "expo-notifications"
+    
     ],
 
     "experiments": { "typedRoutes": true },

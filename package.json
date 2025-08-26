@@ -59,7 +59,10 @@
     "react-native-webview": "13.13.5",
     "simplex-noise": "^4.0.3",
     "tailwindcss": "^3.4.17",
-    "three": "^0.166.1"
+    "three": "^0.166.1",
+    "expo-location": "~18.1.6",
+    "expo-task-manager": "~13.1.6",
+    "expo-notifications": "~0.31.4"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
