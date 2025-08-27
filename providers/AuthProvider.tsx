@@ -24,8 +24,7 @@ const AuthContext = createContext<AuthContextType>({
   signOut: async () => {},
 });
 
-const BACKEND_BASE =
-  process.env.EXPO_PUBLIC_BACKEND_BASE || 'http://localhost:4000';
+const BACKEND_BASE ='https://virtual-me-auth.vercel.app/';
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);

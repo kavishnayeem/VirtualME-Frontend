@@ -5,8 +5,7 @@ import { ThemedText } from '../components/ThemedText';
 import { ThemedView } from '../components/ThemedView';
 import { useAuth } from '../providers/AuthProvider';
 
-const BACKEND_BASE =
-  process.env.EXPO_PUBLIC_BACKEND_BASE || 'http://localhost:4000';
+const BACKEND_BASE ="https://virtual-me-auth.vercel.app/";
 
 export default function ProfileScreen() {
   // ✅ Hooks at top-level only
