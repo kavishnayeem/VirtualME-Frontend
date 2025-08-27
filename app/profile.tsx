@@ -32,7 +32,7 @@ export default function ProfileScreen() {
           <ThemedText style={{ opacity: 0.7, marginBottom: 24 }}>{user.email}</ThemedText>
 
           <Pressable style={[styles.btn, styles.btnSecondary]} onPress={signOut}>
-            <ThemedText>Sign out</ThemedText>
+            <ThemedText style={{ color: 'black' }}>Sign out</ThemedText>
           </Pressable>
 
           <View style={{ height: 24 }} />
@@ -68,7 +68,7 @@ export default function ProfileScreen() {
             onPress={signInWithGoogle}
             disabled={!ready}
           >
-            <ThemedText>Continue with Google</ThemedText>
+            <ThemedText style={{ color: 'black' }}>Continue with Google</ThemedText>
           </Pressable>
         </>
       )}
