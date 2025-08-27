@@ -6,7 +6,7 @@ import { ThemedText } from '../../../components/ThemedText';
 import { ThemedView } from '../../../components/ThemedView';
 import { IconSymbol } from '../../../components/ui/IconSymbol';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
-
+import { useAuth } from '../../../providers/AuthProvider';
 // Use the IconSymbolName type from IconSymbol.tsx, plus 'waveform' for MaterialCommunityIcons
 type IconSymbolName =
   | 'person.crop.circle'
@@ -20,40 +20,20 @@ const R = {
   voiceChat: '/voice-chat',
   voiceClone: '/VoiceClone',
   profile: '/profile',
+  signIn: '/profile',
 } as const satisfies Record<string, Href>; // ✅ forces correct type
 
-const MENU_ITEMS: Array<{
+const BASE_ITEMS: Array<{
   key: keyof typeof R;
   title: string;
   subtitle?: string;
   icon: IconSymbolName;
 }> = [
-  {
-    key: 'profile',
-    title: 'Profile',
-    subtitle: 'Your account',
-    icon: 'person.crop.circle',
-  },
-  {
-    key: 'voiceChat',
-    title: 'Voice Chat',
-    subtitle: 'Talk to the orb',
-    icon: 'waveform.circle',
-  },
-  {
-    key: 'voiceClone',
-    title: 'Voice Clone',
-    subtitle: 'Create your voice',
-    icon: 'waveform', // Use the new waveform icon
-  },
-  {
-    key: 'settings',
-    title: 'Settings',
-    subtitle: 'App preferences',
-    icon: 'gear',
-  },
+  { key: 'profile',   title: 'Profile',    subtitle: 'Your account',     icon: 'person.crop.circle' },
+  { key: 'voiceChat', title: 'Voice Chat', subtitle: 'Talk to the orb',  icon: 'waveform.circle' },
+  { key: 'voiceClone',title: 'Voice Clone',subtitle: 'Create your voice',icon: 'waveform' },
+  { key: 'settings',  title: 'Settings',   subtitle: 'App preferences',  icon: 'gear' },
 ];
-
 // --- Animated Creative Moving Background for Mobile ---
 const isWeb = Platform.OS === 'web';
 
@@ -340,18 +320,37 @@ const Item = ({
 );
 
 export default function MenuScreen() {
+  const { isAuthed } = useAuth();
+
+  // Clone the BASE_ITEMS and modify the first item if not authed
+  const MENU_ITEMS = React.useMemo(() => {
+    if (isAuthed) {
+      return BASE_ITEMS;
+    } else {
+      // Replace the first item (profile) with Sign In
+      return [
+        {
+          ...BASE_ITEMS[0],
+          title: 'Sign In',
+          subtitle: 'Login to your profile',
+        },
+        ...BASE_ITEMS.slice(1),
+      ];
+    }
+  }, [isAuthed]);
+
   return (
     <ThemedView style={styles.container}>
       <AnimatedMobileBackground />
       <VantaTopologyBackground />
       <ThemedText type="title" style={styles.title}>Menu</ThemedText>
       <View style={styles.list}>
-        {MENU_ITEMS.map(item => (
+        {MENU_ITEMS.map((item) => (
           <Item
             key={item.key}
             title={item.title}
             subtitle={item.subtitle}
-            to={R[item.key]}
+            to={R[item.key as keyof typeof R]}
             icon={item.icon}
           />
         ))}
@@ -359,6 +358,7 @@ export default function MenuScreen() {
     </ThemedView>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, gap: 12, backgroundColor: '#000' },

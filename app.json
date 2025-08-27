@@ -7,17 +7,22 @@
     "scheme": "VirtualMe",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.virtualme",   
+      "bundleIdentifier": "com.anonymous.virtualme",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Allow VirtualMe to access your location to provide 'where are you' features for your trusted contacts.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow VirtualMe to update your location in the background.",
-        "UIBackgroundModes": ["location", "remote-notification"]
+        "UIBackgroundModes": [
+          "location",
+          "remote-notification"
+        ],
+        "NSAppTransportSecurity": { "NSAllowsArbitraryLoads": true }
       }
     },
-
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/VM.png",
@@ -31,20 +36,21 @@
         "POST_NOTIFICATIONS"
       ],
       "edgeToEdgeEnabled": true,
-      "package": "com.anonymous.virtualme"           
+      "package": "com.anonymous.virtualme",
+      "usesCleartextTraffic": true
     },
-
     "web": {
       "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/VM.png",
       "build": {
         "babel": {
-          "include": ["expo-image"]
+          "include": [
+            "expo-image"
+          ]
         }
       }
     },
-
     "plugins": [
       "expo-router",
       [
@@ -58,29 +64,38 @@
       ],
       [
         "expo-av",
-        { "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone to visualize and transcribe voice." }
+        {
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone to visualize and transcribe voice."
+        }
       ],
       [
         "react-native-permissions",
         {
-          "iosPermissions": ["Microphone"],
-          "androidPermissions": ["RECORD_AUDIO"]
+          "iosPermissions": [
+            "Microphone"
+          ],
+          "androidPermissions": [
+            "RECORD_AUDIO"
+          ]
         }
       ],
       [
-      "expo-location",
+        "expo-location",
         {
           "isAndroidForegroundServiceEnabled": true
         }
       ],
-      "expo-notifications"
-    
+      "expo-notifications",
+      "expo-secure-store"
     ],
-
-    "experiments": { "typedRoutes": true },
+    "experiments": {
+      "typedRoutes": true
+    },
     "extra": {
       "router": {},
-      "eas": { "projectId": "d55778ed-f4f9-461b-93c4-c5f669bbec06" }
+      "eas": {
+        "projectId": "d55778ed-f4f9-461b-93c4-c5f669bbec06"
+      }
     }
   }
 }

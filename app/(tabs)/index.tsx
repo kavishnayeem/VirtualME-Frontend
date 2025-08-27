@@ -14,6 +14,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Image as ExpoImage } from 'expo-image';
+import Logo from '../../components/Logo';
 
 // Only import these for web background
 const isWeb = Platform.OS === 'web';
@@ -64,7 +65,7 @@ const SECTIONS: Section[] = [
     title: 'Real-time Updates + Family Lobby',
     description:
       'VirtualMe reads your day: calendar + location signals → smart nudges ("leave in 5 for your meeting") and lightweight statuses ("grabbing lunch, back at 1:30"). Invite close family to a private lobby where they can speak with your AI twin—then receive a clean email summary of what they asked and what was shared.',
-    image: `${CDN_BASE_URL}/RTU.png?version=${IMAGE_VERSION}`,
+    image: `${CDN_BASE_URL}/RU.png?version=${IMAGE_VERSION}`,
   },
 ];
 
@@ -456,6 +457,9 @@ export default function LandingScreen() {
           // If isLongScreen, do not render the image at all
           const showImage = !isLongScreen;
 
+          // --- Custom: For hero section, show Logo component instead of image ---
+          const isHero = s.id === 'hero';
+
           return (
             <View
               key={s.id}
@@ -518,25 +522,33 @@ export default function LandingScreen() {
                     opacity: inView ? 1 : 0,
                     transform: [{ translateY: imgTranslate }, { scale: isWide ? 1 : 0.98 }],
                     marginTop: isMobile ? 8 : 0,
+                    alignItems: 'center',
+                    justifyContent: 'center',
                   }}
                 >
                   {inView && (
                     <>
-                      <ExpoImage
-                        source={{ uri: s.image }}
-                        contentFit="contain"
-                        style={{ width: '100%', height: '100%' }}
-                        transition={250}
-                        cachePolicy="disk"
-                        onError={() => handleImageError(s.id, s.image)}
-                        onLoad={() => setImagesLoaded(prev => ({ ...prev, [s.id]: true }))}
-                      />
-                      
-                      {/* Loading placeholder */}
-                      {!imagesLoaded[s.id] && (
-                        <View style={[styles.placeholder, { width: '100%', height: '100%' }]}>
-                          <Text style={styles.placeholderText}>Loading image...</Text>
-                        </View>
+                      {isHero ? (
+                        // Render Logo component for hero section
+                        <Logo style={{ width: '100%', height: '100%' }} />
+                      ) : (
+                        <>
+                          <ExpoImage
+                            source={{ uri: s.image }}
+                            contentFit="contain"
+                            style={{ width: '100%', height: '100%' }}
+                            transition={250}
+                            cachePolicy="disk"
+                            onError={() => handleImageError(s.id, s.image)}
+                            onLoad={() => setImagesLoaded(prev => ({ ...prev, [s.id]: true }))}
+                          />
+                          {/* Loading placeholder */}
+                          {!imagesLoaded[s.id] && (
+                            <View style={[styles.placeholder, { width: '100%', height: '100%' }]}>
+                              <Text style={styles.placeholderText}>Loading image...</Text>
+                            </View>
+                          )}
+                        </>
                       )}
                     </>
                   )}
