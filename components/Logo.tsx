@@ -1,8 +1,8 @@
 import React, { useEffect, useRef } from 'react';
 import { View, StyleSheet, Animated, Easing, Image } from 'react-native';
 
-const MESH_URI = 'https://idoxe6s.sufydely.com/mesh.png';
-const VM_URI = 'https://idoxe6s.sufydely.com/VM.png';
+const MESH_URI = 'https://idoxe6s.sufydely.com/new_mesh.png';
+const VM_URI = 'https://idoxe6s.sufydely.com/new-vm.png';
 
 const Logo = ({ size = 64, style }: { size?: number; style?: any }) => {
   const rotateAnim = useRef(new Animated.Value(0)).current;
@@ -56,8 +56,8 @@ const Logo = ({ size = 64, style }: { size?: number; style?: any }) => {
         source={{ uri: VM_URI }}
         style={{
           position: 'absolute',
-          width: '40%',
-          height: '40%',
+          width: '50%',
+          height: '50%',
           borderRadius: size / 8,
         }}
         resizeMode="contain"

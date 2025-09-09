@@ -11,6 +11,9 @@ import * as FileSystem from 'expo-file-system';
 import { Audio } from 'expo-av';
 import { toByteArray } from 'base64-js';
 
+// 🔹 NEW: bring in selected persona (Me or someone who granted access)
+import { usePersonaTarget } from '../../hooks/usePersonaTarget';
+
 // ========= CONFIG: point this to your server =========
 const BACKEND_URL = 'https://virtual-me-voice-agent.vercel.app'; // <-- change to your LAN IP or tunnel URL
 
@@ -122,6 +125,10 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
   conversationId,
   hints,
 }) => {
+  // 🔹 NEW: who are we “assisting”? (Me or someone who granted me access)
+  const { target } = usePersonaTarget();
+  const targetUserId = target?._id; // may be undefined if nothing selected yet
+
   // UI
   const [isRecording, setIsRecording] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
@@ -237,6 +244,10 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
       form.append('conversationId', cid);
       form.append('profileName', profile);
       form.append('preferredName', preferred);
+
+      // 🔹 NEW: pass the target user id (who we're assisting)
+      if (targetUserId) form.append('targetUserId', String(targetUserId));
+
       if (vId) form.append('voiceId', vId);
       if (hintStr) form.append('hints', hintStr);
 
@@ -278,7 +289,7 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
     } finally {
       setIsBusy(false);
     }
-  }, [conversationId, hints, preferredName, profileName, voiceId]);
+  }, [conversationId, hints, preferredName, profileName, voiceId, targetUserId]); // 🔹 include targetUserId in deps
 
   // ========= Stop recording =========
   const stopRecording = useCallback(async () => {
@@ -475,8 +486,9 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
         <Text style={styles.fileTitle}>Status</Text>
         <ScrollView style={{ maxHeight: 140 }}>
           <Text style={styles.filePath}>{status}</Text>
-          {(serverLang || serverVoiceId || serverConvoId || lastTranscript) ? (
+          {(serverLang || serverVoiceId || serverConvoId || lastTranscript || targetUserId) ? (
             <View style={{ marginTop: 8 }}>
+              {targetUserId && <Text style={styles.metaText}>Acting for: {targetUserId}</Text>}
               {serverLang && <Text style={styles.metaText}>Language: {serverLang}</Text>}
               {serverVoiceId && <Text style={styles.metaText}>Voice: {serverVoiceId}</Text>}
               {serverConvoId && <Text style={styles.metaText}>Conversation: {serverConvoId}</Text>}

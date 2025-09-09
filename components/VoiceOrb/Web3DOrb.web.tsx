@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { createNoise3D } from 'simplex-noise';
+import { usePersonaTarget } from '../../hooks/usePersonaTarget'; // 🔹 NEW
 
 type Props = {
   intensity?: number;
@@ -49,7 +50,6 @@ function ensureConversationId(externalId?: string): string {
   return fresh;
 }
 
-
 const Web3DOrb: React.FC<Props> = ({
   intensity = 0.6,
   profileName = 'Kavish Nayeem',
@@ -58,6 +58,10 @@ const Web3DOrb: React.FC<Props> = ({
   conversationId,
   hints,
 }) => {
+  const { target } = usePersonaTarget();                 // 🔹 NEW
+  const targetUserId = target?._id;                      // 🔹 NEW
+  const targetLabel = target ? (target.name?.trim() || target.email) : null; // 🔹 NEW
+
   const [isListening, setIsListening] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const [currentVolume, setCurrentVolume] = useState(0);
@@ -154,7 +158,7 @@ const Web3DOrb: React.FC<Props> = ({
     };
   }, [isListening]);
 
-  // Orb rendering and animation (improved for smoothness)
+  // Orb rendering and animation
   useEffect(() => {
     if (!containerRef.current) return;
 
@@ -169,11 +173,9 @@ const Web3DOrb: React.FC<Props> = ({
     groupRef.current = group;
     cameraRef.current = camera;
 
-    // --- Fix for blurry orb on mobile/small screens: set renderer pixelRatio to devicePixelRatio ---
     const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
     rendererRef.current = renderer;
 
-    // Set pixel ratio to devicePixelRatio for crisp rendering on high-DPI screens
     renderer.setPixelRatio(window.devicePixelRatio || 1);
 
     const icosahedronGeometry = new THREE.IcosahedronGeometry(ORB_RADIUS, 7);
@@ -199,9 +201,7 @@ const Web3DOrb: React.FC<Props> = ({
 
     containerRef.current.appendChild(renderer.domElement);
     const size = Math.min(containerRef.current.clientWidth, 500);
-    renderer.setSize(size, size, false); // false disables style auto update, we control via CSS
-
-    // Also set canvas style width/height to 100% for responsive scaling
+    renderer.setSize(size, size, false);
     renderer.domElement.style.width = '100%';
     renderer.domElement.style.height = '100%';
     renderer.domElement.style.display = 'block';
@@ -211,22 +211,19 @@ const Web3DOrb: React.FC<Props> = ({
       const s = Math.min(containerRef.current.clientWidth, 500);
       cameraRef.current.aspect = 1;
       cameraRef.current.updateProjectionMatrix();
-      // Update pixel ratio on resize (in case devicePixelRatio changes, e.g. zoom)
       rendererRef.current.setPixelRatio(window.devicePixelRatio || 1);
       rendererRef.current.setSize(s, s, false);
     };
 
-    // Use time-based rotation for smoothness
+    // time-based rotation
     let lastTime = performance.now();
-
     const renderLoop = (now?: number) => {
       if (!groupRef.current || !rendererRef.current || !sceneRef.current || !cameraRef.current) return;
       const currentTime = now !== undefined ? now : performance.now();
-      const delta = (currentTime - lastTime) / 1000; // seconds
+      const delta = (currentTime - lastTime) / 1000;
       lastTime = currentTime;
 
-      // Use a fixed rotation speed per second for smoothness
-      const ROTATION_SPEED = 0.5; // radians per second
+      const ROTATION_SPEED = 0.5;
       groupRef.current.rotation.y += ROTATION_SPEED * delta;
 
       rendererRef.current.render(sceneRef.current, cameraRef.current);
@@ -252,7 +249,6 @@ const Web3DOrb: React.FC<Props> = ({
 
   // Orb morphing
   useEffect(() => {
-    // If orb is "speaking", use outputVolume, else use mic input
     const vibrate = isSpeaking && outputVolume > 0.01;
     const morphVolume = vibrate ? outputVolume : (isListening ? currentVolume : 0);
 
@@ -280,7 +276,6 @@ const Web3DOrb: React.FC<Props> = ({
     const geometry = mesh.geometry as THREE.IcosahedronGeometry;
     const positionAttribute = (geometry as any).getAttribute('position') as THREE.BufferAttribute;
 
-    // Only update if volume or listening state changes, to avoid unnecessary computation
     for (let i = 0; i < positionAttribute.count; i++) {
       const baseX = original[i * 3];
       const baseY = original[i * 3 + 1];
@@ -353,11 +348,12 @@ const Web3DOrb: React.FC<Props> = ({
             const formData = new FormData();
             formData.append('audio', audioBlob, 'audio.wav');
 
-            // NEW: attach persona, voice, convo, hints
+            // Attach persona, voice, convo, hints
             const cid = ensureConversationId(conversationId);
             formData.append('conversationId', cid);
             formData.append('profileName', profileName);
             formData.append('preferredName', preferredName);
+            if (targetUserId) formData.append('targetUserId', String(targetUserId)); // 🔹 NEW
             if (voiceId) formData.append('voiceId', voiceId);
             if (hints) formData.append('hints', hints);
 
@@ -637,6 +633,11 @@ const Web3DOrb: React.FC<Props> = ({
       >
         <div style={{ fontWeight: 'bold', marginBottom: 6, fontSize: 13 }}>Status</div>
         <div style={{ color: '#888', wordBreak: 'break-word' }}>{status}</div>
+        {targetLabel && (
+          <div style={{ color: '#666', marginTop: 6, fontSize: 12 }}>
+            Acting for: <span style={{ color: '#444', fontWeight: 600 }}>{targetLabel}</span>
+          </div>
+        )}
         {isBusy && <div style={{ color: '#888', marginTop: 4 }}>Working…</div>}
         {isSpeaking && (
           <div style={{ color: '#4af', marginTop: 4, fontWeight: 500 }}>

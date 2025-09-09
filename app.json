@@ -1,10 +1,11 @@
 {
   "expo": {
+    "owner": "kavishnayeem",
     "name": "VirtualMe",
     "slug": "VirtualMe",
     "version": "1.0.0",
     "orientation": "portrait",
-    "scheme": "VirtualMe",
+    "scheme": "virtualme",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "assetBundlePatterns": [
@@ -12,7 +13,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.virtualme",
+      "package": "com.kavishnayeem.virtualme",
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Allow VirtualMe to access your location to provide 'where are you' features for your trusted contacts.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow VirtualMe to update your location in the background.",
@@ -25,9 +26,17 @@
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/VM.png",
+        "foregroundImage": "./assets/images/VM_1.png",
         "backgroundColor": "#ffffff"
       },
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": false,
+          "data": [{ "scheme": "virtualme" }],  
+          "category": ["BROWSABLE", "DEFAULT"]
+        }
+      ],
       "permissions": [
         "ACCESS_COARSE_LOCATION",
         "ACCESS_FINE_LOCATION",
@@ -36,13 +45,14 @@
         "POST_NOTIFICATIONS"
       ],
       "edgeToEdgeEnabled": true,
-      "package": "com.anonymous.virtualme",
+      "package": "com.kavishnayeem.virtualme",
       "usesCleartextTraffic": true
+      
     },
     "web": {
       "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/VM.png",
+      "favicon": "./assets/images/favicon.png",
       "build": {
         "babel": {
           "include": [
@@ -51,6 +61,7 @@
         }
       }
     },
+    
     "plugins": [
       "expo-router",
       [
@@ -93,6 +104,7 @@
     },
     "extra": {
       "router": {},
+      "googleWebClientId": "626679169115-qqbvcsefhea4qfntqngeub6amtapan8o.apps.googleusercontent.com",
       "eas": {
         "projectId": "d55778ed-f4f9-461b-93c4-c5f669bbec06"
       }

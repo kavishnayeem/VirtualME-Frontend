@@ -7,13 +7,14 @@ import { ThemedView } from '../../../components/ThemedView';
 import { IconSymbol } from '../../../components/ui/IconSymbol';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { useAuth } from '../../../providers/AuthProvider';
-// Use the IconSymbolName type from IconSymbol.tsx, plus 'waveform' for MaterialCommunityIcons
+// Use the IconSymbolName type from IconSymbol.tsx, plus 'waveform' and 'account-group' for MaterialCommunityIcons
 type IconSymbolName =
   | 'person.crop.circle'
   | 'voice.chat'
   | 'waveform.circle'
   | 'gear'
-  | 'waveform'; // Add 'waveform' for special case
+  | 'waveform'
+  | 'lobby'; // Add 'lobby' for Lobby icon
 
 const R = {
   settings: '/settings',
@@ -21,6 +22,7 @@ const R = {
   voiceClone: '/VoiceClone',
   profile: '/profile',
   signIn: '/profile',
+  lobby: '/lobby', // Add route for Lobby
 } as const satisfies Record<string, Href>; // ✅ forces correct type
 
 const BASE_ITEMS: Array<{
@@ -32,6 +34,7 @@ const BASE_ITEMS: Array<{
   { key: 'profile',   title: 'Profile',    subtitle: 'Your account',     icon: 'person.crop.circle' },
   { key: 'voiceChat', title: 'Voice Chat', subtitle: 'Talk to the orb',  icon: 'waveform.circle' },
   { key: 'voiceClone',title: 'Voice Clone',subtitle: 'Create your voice',icon: 'waveform' },
+  { key: 'lobby',     title: 'Lobby',      subtitle: 'Join the lobby',   icon: 'lobby' }, // New Lobby item
   { key: 'settings',  title: 'Settings',   subtitle: 'App preferences',  icon: 'gear' },
 ];
 // --- Animated Creative Moving Background for Mobile ---
@@ -307,8 +310,10 @@ const Item = ({
       <View style={styles.itemRow}>
         {icon === 'waveform' ? (
           <MaterialCommunityIcons name="waveform" size={28} color="white" style={styles.itemIcon} />
+        ) : icon === 'lobby' ? (
+          <MaterialCommunityIcons name="account-group" size={28} color="white" style={styles.itemIcon} />
         ) : (
-          <IconSymbol name={icon as Exclude<IconSymbolName, 'waveform'>} size={28} color="white" style={styles.itemIcon} />
+          <IconSymbol name={icon as Exclude<IconSymbolName, 'waveform' | 'lobby'>} size={28} color="white" style={styles.itemIcon} />
         )}
         <View style={{ flex: 1 }}>
           <ThemedText type="defaultSemiBold" style={styles.itemTitle}>{title}</ThemedText>

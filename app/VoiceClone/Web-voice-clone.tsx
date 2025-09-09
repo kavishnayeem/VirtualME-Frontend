@@ -1,8 +1,9 @@
 // app/VoiceCloneScreen.tsx
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, ActivityIndicator, Alert, Platform, TextInput, StyleSheet, ScrollView, Dimensions } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 import { Audio } from 'expo-av';
+import { useAuth } from '../../providers/AuthProvider';
 
 const SERVER_URL = 'https://virtual-me-backend.vercel.app';
 
@@ -33,8 +34,17 @@ Arabic (Surah Al-Fatiha):
 `;
 
 export default function VoiceCloneScreen() {
+  const { token } = useAuth();
+
+  // Always return a concrete object to satisfy TS's HeadersInit
+  const authedHeaders = useMemo<Record<string, string>>(() => {
+    const h: Record<string, string> = {};
+    if (token) h.Authorization = `Bearer ${token}`;
+    return h;
+  }, [token]);
+
   const [voiceId, setVoiceId] = useState<string | null>(null);
-  const [voiceIdInput, setVoiceIdInput] = useState<string>(''); // paste an existing voice_id here
+  const [voiceIdInput, setVoiceIdInput] = useState<string>(''); // allow paste / override
   const [busy, setBusy] = useState(false);
 
   // Native playback
@@ -45,22 +55,42 @@ export default function VoiceCloneScreen() {
   const audioElRef = useRef<HTMLAudioElement | null>(null);
   const [webSrc, setWebSrc] = useState<string | null>(null);
 
-  // ---- Record & Clone (works on both web and mobile) ----
+  // Record & Clone (web + mobile)
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
-
-  // --- Track if recording is being played back ---
   const [isPlayingRecording, setIsPlayingRecording] = useState(false);
+
+  // preload saved voiceId from backend
+  const loadMyVoice = useCallback(async () => {
+    if (!token) return; // not signed in
+    try {
+      setBusy(true);
+      const resp = await fetch(`${SERVER_URL}/me/voice`, { headers: authedHeaders });
+      if (resp.ok) {
+        const json = await resp.json();
+        if (json?.voiceId) {
+          setVoiceId(json.voiceId);
+          setVoiceIdInput(json.voiceId);
+        }
+      } else if (resp.status === 401) {
+        // Not authed; ignore
+      }
+    } catch (e) {
+      console.warn('Failed to load /me/voice', e);
+    } finally {
+      setBusy(false);
+    }
+  }, [token, authedHeaders]);
+
+  useEffect(() => { loadMyVoice(); }, [loadMyVoice]);
 
   // Start recording
   const startRecording = useCallback(async () => {
     try {
       setBusy(true);
-      // Ask for permissions
       const { status } = await Audio.requestPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission required', 'Microphone permission is required to record your voice.');
-        setBusy(false);
         return;
       }
       await Audio.setAudioModeAsync({
@@ -68,9 +98,7 @@ export default function VoiceCloneScreen() {
         playsInSilentModeIOS: true,
       });
       const rec = new Audio.Recording();
-      await rec.prepareToRecordAsync(
-        Audio.RecordingOptionsPresets.HIGH_QUALITY
-      );
+      await rec.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
       await rec.startAsync();
       setRecording(rec);
       setRecordedUri(null);
@@ -102,6 +130,7 @@ export default function VoiceCloneScreen() {
 
   // Upload and clone
   const uploadAndClone = useCallback(async () => {
+    if (!token) return Alert.alert('Sign in', 'Please sign in first.');
     if (!recordedUri) {
       Alert.alert('No recording', 'Please record your voice first.');
       return;
@@ -109,27 +138,23 @@ export default function VoiceCloneScreen() {
     try {
       setBusy(true);
       const form = new FormData();
-      form.append('name', 'KavishVoice');
+      form.append('name', 'MyVoice');
 
       if (Platform.OS === 'web') {
-        // On web, fetch the blob from the URI
         const fileBlob = await fetch(recordedUri).then(r => r.blob());
         const filename = 'sample.webm';
-        let mime = fileBlob.type || 'audio/webm';
+        const mime = fileBlob.type || 'audio/webm';
+        // @ts-ignore - React Native web's File is fine on web
         form.append('audio', new File([fileBlob], filename, { type: mime }));
       } else {
-        // On native, use the file URI
-        // @ts-ignore
-        form.append('audio', {
-          uri: recordedUri,
-          name: 'sample.m4a',
-          type: 'audio/m4a',
-        });
+        // @ts-ignore React Native FormData file shape
+        form.append('audio', { uri: recordedUri, name: 'sample.m4a', type: 'audio/m4a' });
       }
 
       const resp = await fetch(`${SERVER_URL}/clone`, {
         method: 'POST',
         body: form,
+        headers: authedHeaders,
       });
 
       if (!resp.ok) {
@@ -138,7 +163,7 @@ export default function VoiceCloneScreen() {
       }
       const data = await resp.json();
       setVoiceId(data.voice_id);
-      setVoiceIdInput(data.voice_id); // show in input for reuse
+      setVoiceIdInput(data.voice_id);
       Alert.alert('Voice cloned', `Saved voice_id: ${data.voice_id}`);
     } catch (e: any) {
       console.error(e);
@@ -146,43 +171,39 @@ export default function VoiceCloneScreen() {
     } finally {
       setBusy(false);
     }
-  }, [recordedUri]);
+  }, [recordedUri, token, authedHeaders]);
 
-  // ---- Generate & Play using current voiceId (pasted or cloned) ----
+  // Generate & Play (use pasted/cloned voice if set; else let backend fallback to DEFAULT_VOICE_ID)
   const generateAndPlay = useCallback(async () => {
     const id = (voiceIdInput?.trim() || voiceId || '').trim();
-    if (!id) return Alert.alert('No voice ID', 'Paste a voice_id or clone one first.');
-
     try {
       setBusy(true);
+      const body: any = { text: SAMPLE_TEXT };
+      // Only include voiceId if we actually have one; otherwise backend will use DEFAULT_VOICE_ID
+      if (id) body.voiceId = id;
+
       const resp = await fetch(`${SERVER_URL}/speak`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voiceId: id, text: SAMPLE_TEXT }),
+        headers: { 'Content-Type': 'application/json', ...authedHeaders },
+        body: JSON.stringify(body),
       });
       if (!resp.ok) {
         const t = await resp.text();
         throw new Error(`TTS failed: ${resp.status} ${t}`);
       }
 
-      // Audio as Blob
       const blob = await resp.blob();
 
       if (Platform.OS === 'web') {
-        // Use <audio> element (prevents AbortError races)
         const url = URL.createObjectURL(blob);
-        // Clean up old URL if any
         if (webSrc && webSrc.startsWith('blob:')) URL.revokeObjectURL(webSrc);
-        setWebSrc(url);
-        // Do NOT auto-play; user can click Play in controls
+        setWebSrc(url); // user taps Play
       } else {
-        // Native: write to cache and play with expo-av
         const base64 = await blobToBase64Compat(blob, setBusy);
         const fileUri = `${FileSystem.cacheDirectory}tts-${Date.now()}.mp3`;
         await FileSystem.writeAsStringAsync(fileUri, base64, { encoding: FileSystem.EncodingType.Base64 });
         setNativeAudioUri(fileUri);
 
-        // Stop & unload previous
         if (soundRef.current) {
           try { await soundRef.current.stopAsync(); } catch {}
           try { await soundRef.current.unloadAsync(); } catch {}
@@ -198,9 +219,9 @@ export default function VoiceCloneScreen() {
     } finally {
       setBusy(false);
     }
-  }, [voiceId, voiceIdInput, webSrc]);
+  }, [voiceId, voiceIdInput, webSrc, authedHeaders]);
 
-  // Cleanup
+  // Cleanup web/native audio
   useEffect(() => {
     return () => {
       if (soundRef.current) soundRef.current.unloadAsync();
@@ -222,7 +243,6 @@ export default function VoiceCloneScreen() {
       const { sound } = await Audio.Sound.createAsync({ uri: recordedUri });
       soundRef.current = sound;
 
-      // Listen for playback end to update state
       sound.setOnPlaybackStatusUpdate((status) => {
         if (!status.isLoaded) return;
         if ((status as any).didJustFinish) {
@@ -259,8 +279,6 @@ export default function VoiceCloneScreen() {
     };
   }, [recordedUri]);
 
-  // Use a View with backgroundColor as a fallback for LinearGradient
-  // Fix: Use minHeight and maxWidth for card, and ScrollView for overflow
   const windowWidth = Dimensions.get('window').width;
   const cardMaxWidth = Math.min(windowWidth - 24, 480);
 
@@ -355,9 +373,9 @@ export default function VoiceCloneScreen() {
 
           {/* Generate */}
           <Pressable
-            disabled={busy || !(voiceIdInput || voiceId)}
+            disabled={busy}
             onPress={generateAndPlay}
-            style={[styles.btn, (busy || !(voiceIdInput || voiceId)) ? styles.btnDisabled : styles.btnSecondary]}
+            style={[styles.btn, busy ? styles.btnDisabled : styles.btnSecondary]}
           >
             <Text style={styles.btnText}>Generate & Prepare Sample</Text>
           </Pressable>
@@ -389,7 +407,9 @@ export default function VoiceCloneScreen() {
           {/* Native info */}
           {Platform.OS !== 'web' && nativeAudioUri ? (
             <View style={[styles.badge, { borderColor: '#6b21a8' }]}>
-              <Text style={[styles.badgeText, { color: '#d8b4fe' }]}>Saved audio: <Text style={{ color: '#faf5ff' }}>{nativeAudioUri}</Text></Text>
+              <Text style={[styles.badgeText, { color: '#d8b4fe' }]}>
+                Saved audio: <Text style={{ color: '#faf5ff' }}>{nativeAudioUri}</Text>
+              </Text>
             </View>
           ) : null}
         </View>
@@ -399,10 +419,6 @@ export default function VoiceCloneScreen() {
 }
 
 // -------- helpers --------
-// Improved: More robust blob-to-base64 conversion for Android/React Native
-// This version tries to handle all possible blob/file types and gives more detailed error messages.
-// FIX: If blob._data.blobId is not a file path, do NOT try to copy or read it as a file.
-// Instead, check for blob.uri and use that, or fallback to arrayBuffer.
 async function blobToBase64Compat(blob: any, setBusy?: (b: boolean) => void): Promise<string> {
   // 1. Try arrayBuffer (web, modern RN)
   if (typeof blob?.arrayBuffer === 'function') {
@@ -411,7 +427,6 @@ async function blobToBase64Compat(blob: any, setBusy?: (b: boolean) => void): Pr
       let binary = '';
       const bytes = new Uint8Array(arrayBuffer);
       for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-      // Use global.btoa if available, else Buffer fallback (for Node polyfills)
       if (typeof global.btoa === 'function') {
         return global.btoa(binary);
       } else if (typeof Buffer !== 'undefined') {
@@ -419,13 +434,10 @@ async function blobToBase64Compat(blob: any, setBusy?: (b: boolean) => void): Pr
       } else {
         throw new Error('No base64 encoder available');
       }
-    } catch (e) {
-      // Continue to next fallback
-    }
+    } catch {}
   }
 
-  // 2. React Native fetch polyfill: blob._data.blobId (Android, iOS)
-  // Fix: Only try to read as file if blobId looks like a file path (starts with file:// or /)
+  // 2. React Native fetch polyfill: blob._data.blobId (Android/iOS)
   if (blob && blob._data && blob._data.blobId) {
     const blobId = blob._data.blobId;
     if (typeof blobId === 'string' && (blobId.startsWith('file://') || blobId.startsWith('/'))) {
@@ -433,94 +445,58 @@ async function blobToBase64Compat(blob: any, setBusy?: (b: boolean) => void): Pr
         const base64 = await FileSystem.readAsStringAsync(blobId, { encoding: FileSystem.EncodingType.Base64 });
         return base64;
       } catch (e) {
-        // Try to recover by copying the file to a new location and reading again (Android bug workaround)
         try {
           if (setBusy) setBusy(true);
           const tempPath = FileSystem.cacheDirectory + 'temp-blob-' + Date.now();
           await FileSystem.copyAsync({ from: blobId, to: tempPath });
           const base64 = await FileSystem.readAsStringAsync(tempPath, { encoding: FileSystem.EncodingType.Base64 });
-          // Clean up temp file
           await FileSystem.deleteAsync(tempPath, { idempotent: true });
           return base64;
-        } catch (e2) {
-          throw new Error(
-            `Failed to convert blob to base64 on Android. blob._data.blobId: ${blobId}, error: ${e2}`
-          );
         } finally {
           if (setBusy) setBusy(false);
         }
       }
     }
-    // If blobId is not a file path, try blob.uri next
   }
 
-  // 3. Expo fetch polyfill: blob.uri (Android, iOS)
+  // 3. Expo fetch polyfill: blob.uri
   if (blob && typeof blob === 'object' && typeof blob.uri === 'string') {
-    try {
-      const base64 = await FileSystem.readAsStringAsync(blob.uri, { encoding: FileSystem.EncodingType.Base64 });
-      return base64;
-    } catch (e) {
-      throw new Error(`Failed to convert file URI blob to base64: ${blob.uri}, error: ${e}`);
-    }
+    const base64 = await FileSystem.readAsStringAsync(blob.uri, { encoding: FileSystem.EncodingType.Base64 });
+    return base64;
   }
 
-  // 4. If blob is a string (already base64 or file path)
+  // 4. If blob is a string (path or already base64)
   if (typeof blob === 'string') {
-    // Heuristic: if it looks like a file path, try to read as base64
     if (blob.startsWith('file://') || blob.startsWith('/')) {
-      try {
-        const base64 = await FileSystem.readAsStringAsync(blob, { encoding: FileSystem.EncodingType.Base64 });
-        return base64;
-      } catch (e) {
-        throw new Error(`Failed to convert string file path to base64: ${blob}, error: ${e}`);
-      }
+      const base64 = await FileSystem.readAsStringAsync(blob, { encoding: FileSystem.EncodingType.Base64 });
+      return base64;
     }
-    // Otherwise, assume it's already base64
     return blob;
   }
 
   // 5. If blob is a File (web)
   if (typeof File !== 'undefined' && blob instanceof File) {
-    try {
-      const arrayBuffer = await blob.arrayBuffer();
-      let binary = '';
-      const bytes = new Uint8Array(arrayBuffer);
-      for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-      if (typeof global.btoa === 'function') {
-        return global.btoa(binary);
-      } else if (typeof Buffer !== 'undefined') {
-        return Buffer.from(arrayBuffer).toString('base64');
-      } else {
-        throw new Error('No base64 encoder available');
-      }
-    } catch (e) {
-      throw new Error(`Failed to convert File to base64: ${e}`);
-    }
+    const arrayBuffer = await blob.arrayBuffer();
+    let binary = '';
+    const bytes = new Uint8Array(arrayBuffer);
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    if (typeof global.btoa === 'function') return global.btoa(binary);
+    if (typeof Buffer !== 'undefined') return Buffer.from(arrayBuffer).toString('base64');
+    throw new Error('No base64 encoder available');
   }
 
   // 6. If blob is a Blob (web)
   if (typeof Blob !== 'undefined' && blob instanceof Blob) {
-    try {
-      const arrayBuffer = await blob.arrayBuffer();
-      let binary = '';
-      const bytes = new Uint8Array(arrayBuffer);
-      for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-      if (typeof global.btoa === 'function') {
-        return global.btoa(binary);
-      } else if (typeof Buffer !== 'undefined') {
-        return Buffer.from(arrayBuffer).toString('base64');
-      } else {
-        throw new Error('No base64 encoder available');
-      }
-    } catch (e) {
-      throw new Error(`Failed to convert Blob to base64: ${e}`);
-    }
+    const arrayBuffer = await blob.arrayBuffer();
+    let binary = '';
+    const bytes = new Uint8Array(arrayBuffer);
+    for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
+    if (typeof global.btoa === 'function') return global.btoa(binary);
+    if (typeof Buffer !== 'undefined') return Buffer.from(arrayBuffer).toString('base64');
+    throw new Error('No base64 encoder available');
   }
 
-  // If all else fails, throw with details
-  throw new Error(
-    `Unsupported blob type for base64 conversion. blob: ${JSON.stringify(blob)}`
-  );
+  throw new Error(`Unsupported blob type for base64 conversion.`);
 }
 
 const styles = StyleSheet.create({
@@ -530,7 +506,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     width: '100%',
-    // backgroundColor: '#18181b', // moved to inline style for fallback
   },
   card: {
     width: '100%',
@@ -611,9 +586,6 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: 12,
     textAlign: 'center',
-    fontFamily: Platform.select({ ios: 'Menlo', android: 'monospace', default: 'System' }),
     color: '#cbd5e1',
   },
-  footer: { marginTop: 24, fontSize: 12, color: '#9ca3af', textAlign: 'center' },
-  footerAccent: { color: '#818cf8', fontWeight: '600' },
 });
