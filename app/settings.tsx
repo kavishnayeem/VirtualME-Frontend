@@ -5,6 +5,7 @@ import * as Device from 'expo-device';
 import { enableBackgroundLocation, disableBackgroundLocation } from '../services/location-bg';
 import { ensureDeviceId } from '../utils/deviceId';
 import { registerThisDevice, fetchMyDevice, setDeviceSharing } from '../services/deviceApi';
+import { forcePushNow } from '../services/location-bg';
 
 type DeviceRecord = {
   id: string;
@@ -109,7 +110,10 @@ export default function SettingsScreen() {
       } else {
         await disableBackgroundLocation();
       }
-
+      if (next) {
+        try { await forcePushNow('settings-toggle'); } catch {}
+      }
+      
       // Tell backend our intent for this device
       const updated = await setDeviceSharing(rec!.id, next);
       setRecord(updated);

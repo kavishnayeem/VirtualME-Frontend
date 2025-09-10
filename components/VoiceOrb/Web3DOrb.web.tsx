@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as THREE from 'three';
 import { createNoise3D } from 'simplex-noise';
 import { usePersonaTarget } from '../../hooks/usePersonaTarget'; // 🔹 NEW
+import { useAuth } from '../../providers/AuthProvider';
 
 type Props = {
   intensity?: number;
@@ -61,6 +62,7 @@ const Web3DOrb: React.FC<Props> = ({
   const { target } = usePersonaTarget();                 // 🔹 NEW
   const targetUserId = target?._id;                      // 🔹 NEW
   const targetLabel = target ? (target.name?.trim() || target.email) : null; // 🔹 NEW
+  const { token } = useAuth?.() ?? ({ token: undefined } as any);
 
   const [isListening, setIsListening] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
@@ -354,11 +356,13 @@ const Web3DOrb: React.FC<Props> = ({
             formData.append('profileName', profileName);
             formData.append('preferredName', preferredName);
             if (targetUserId) formData.append('targetUserId', String(targetUserId)); // 🔹 NEW
+            if (token) formData.append('authToken', token);
             if (voiceId) formData.append('voiceId', voiceId);
             if (hints) formData.append('hints', hints);
 
             const resp = await fetch(`${BACKEND_URL}/voice`, {
               method: 'POST',
+              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
               body: formData,
             });
 

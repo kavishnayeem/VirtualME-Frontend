@@ -2,53 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, Modal, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { usePersonaTarget } from '../providers/PersonaTargetProvider';
 import { useAuth } from '../providers/AuthProvider';
+import { fetchMeAndGranted, UserSummary } from '../lib/lobby';
 
-type UserSummary = {
-  _id: string;
-  email: string;
-  name?: string;
-  picture?: string;
-};
-
-type Snapshot = {
-  me: UserSummary;
-  grantedFrom: UserSummary[]; // people who granted me access (I can act for them)
-};
-
-const API_BASE = process.env.EXPO_PUBLIC_DATABASE_API_BASE ?? 'https://virtual-me-auth.vercel.app';
-
-async function fetchSnapshot(authToken?: string): Promise<Snapshot> {
-  const r = await fetch(`${API_BASE}/lobby/summary`, {
-    headers: {
-      Accept: 'application/json',
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-    },
-  });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-
-  const s = await r.json() as {
-    me: UserSummary;
-    granted?: Array<{ status: 'active' | 'pending' | string; guest: UserSummary }>;
-    received?: Array<{ status: 'active' | 'pending' | string; owner: UserSummary }>;
-  };
-
-  const me = s.me;
-  const grantedFrom = Array.isArray(s.received)
-    ? s.received
-        .filter(g => g && g.owner && g.status === 'active')
-        .map(g => g.owner)
-    : [];
-
-  return { me, grantedFrom };
-}
-
-export default function PersonaPicker({
-  visible,
-  onClose,
-}: {
-  visible: boolean;
-  onClose: () => void;
-}) {
+export default function PersonaPicker({ visible, onClose }: { visible: boolean; onClose: () => void; }) {
   const { target, setTarget, clear } = usePersonaTarget();
   const { token } = useAuth?.() ?? ({ token: undefined } as any);
   const [loading, setLoading] = useState(true);
@@ -61,15 +17,11 @@ export default function PersonaPicker({
     (async () => {
       try {
         setLoading(true);
-        const snap = await fetchSnapshot(token ?? undefined);
+        const snap = await fetchMeAndGranted(token ?? undefined);
         setMe(snap.me);
-        const people = [snap.me, ...(snap.grantedFrom || [])];
-        setList(people);
-      } catch (e) {
-        // silent; show empty
-      } finally {
-        setLoading(false);
-      }
+        setList([snap.me, ...(snap.grantedFrom || [])]);
+      } catch { setList([]); setMe(null); }
+      finally { setLoading(false); }
     })();
   }, [visible, token]);
 

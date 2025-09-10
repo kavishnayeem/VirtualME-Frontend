@@ -1,10 +1,14 @@
 // src/services/location-bg.ts
 import { Platform } from 'react-native';
+import { ensureDeviceId } from '../utils/deviceId';
 
 const TASK_NAME = 'vm-location-updates';
 let TaskManager: typeof import('expo-task-manager') | null = null;
 let Location: typeof import('expo-location') | null = null;
-
+let AUTH_TOKEN: string | null = null;
+export function setLocationAuthToken(token: string | null) {
+  AUTH_TOKEN = token && token.trim() ? token : null;
+}
 async function loadNative() {
   if (Platform.OS === 'web') return false;
   if (!TaskManager) try { TaskManager = await import('expo-task-manager'); } catch { return false; }
@@ -22,13 +26,35 @@ function apiBase() {
 async function postUpdate(payload: any, reason = 'bg') {
   const base = apiBase();
   if (!base) return;
+
+  // ensure we have a deviceId
+  const deviceId = await ensureDeviceId();
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-VM-Reason': reason,
+  };
+  if (AUTH_TOKEN) headers.Authorization = `Bearer ${AUTH_TOKEN}`;
+
+  const body = JSON.stringify({ deviceId, payload });
+
   const r = await fetch(`${base}/location/update`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-VM-Reason': reason },
-    body: JSON.stringify({ payload }),
+    headers,
+    body,
   });
+
   const txt = await r.text();
   console.log('[vm] POST /location/update', r.status, r.headers.get('x-store'), r.headers.get('x-saved-at'), 'resp=', txt);
+
+  // Helpful dev hinting: if device not registered, surface it once
+  if (r.status === 403 && /device not registered/i.test(txt)) {
+    console.warn('[vm] Device not registered on auth backend. Open Settings → Register device, then re-enable sharing.');
+  } else if (r.status === 403 && /sharing disabled/i.test(txt)) {
+    console.warn('[vm] Device exists but sharing is OFF on server. Toggle the setting to ON.');
+  } else if (r.status === 401) {
+    console.warn('[vm] No auth for /location/update. Make sure setLocationAuthToken(token) is called after login.');
+  }
 }
 
 export async function ensureTaskRegistered() {

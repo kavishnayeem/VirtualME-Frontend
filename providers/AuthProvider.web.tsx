@@ -1,6 +1,8 @@
 // providers/AuthProvider.web.tsx
 import React, { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import { getItem, setItem, deleteItem } from '../utils/safeStorage';
+import { setLocationAuthToken } from '../services/location-bg';
+import { setDeviceApiAuthToken } from '../services/deviceApi';
 
 type User = { name?: string; email?: string; picture?: string; _id?: string };
 
@@ -46,7 +48,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     })();
   }, []);
+  useEffect(() => {
+    setLocationAuthToken(sessionToken ?? null);
+    setDeviceApiAuthToken(sessionToken ?? null);
 
+  }, [sessionToken]);
   const signInWithGoogle = async () => {
     const onMsg = async (ev: MessageEvent) => {
       if (!ev?.data || ev.data.type !== 'vm-auth') return;
@@ -72,6 +78,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = async () => {
     setUser(null);
     setSessionToken(null);
+    setLocationAuthToken(null);
+    setDeviceApiAuthToken(null);
     await deleteItem('vm_session');
   };
 

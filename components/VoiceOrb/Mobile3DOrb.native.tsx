@@ -5,7 +5,7 @@ import { GLView } from 'expo-gl';
 import { Renderer } from 'expo-three';
 import * as THREE from 'three';
 import { createNoise3D } from 'simplex-noise';
-
+import { useAuth } from '../../providers/AuthProvider';
 import AudioRecord from 'react-native-audio-record';
 import * as FileSystem from 'expo-file-system';
 import { Audio } from 'expo-av';
@@ -125,6 +125,8 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
   conversationId,
   hints,
 }) => {
+  const { token } = useAuth?.() ?? ({ token: undefined } as any);
+
   // 🔹 NEW: who are we “assisting”? (Me or someone who granted me access)
   const { target } = usePersonaTarget();
   const targetUserId = target?._id; // may be undefined if nothing selected yet
@@ -245,13 +247,20 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
       form.append('profileName', profile);
       form.append('preferredName', preferred);
 
+      if (token) form.append('authToken', token);
+      if (targetUserId) form.append('targetUserId', String(targetUserId));  
       // 🔹 NEW: pass the target user id (who we're assisting)
       if (targetUserId) form.append('targetUserId', String(targetUserId));
 
       if (vId) form.append('voiceId', vId);
       if (hintStr) form.append('hints', hintStr);
 
-      const resp = await fetch(`${BACKEND_URL}/voice`, { method: 'POST', body: form });
+      const resp = await fetch(`${BACKEND_URL}/voice`, {
+        method: 'POST',
+        // optional header as well; body already has authToken, but this helps too
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        body: form,
+      });
 
       if (!resp.ok) {
         const txt = await resp.text();

@@ -5,7 +5,8 @@ import * as WebBrowser from 'expo-web-browser';
 import { GoogleSignin } from '@react-native-google-signin/google-signin';
 import Constants from 'expo-constants';
 import { getItem, setItem, deleteItem } from '../utils/safeStorage';
-
+import { setLocationAuthToken } from '../services/location-bg';
+import { setDeviceApiAuthToken } from '../services/deviceApi';
 type User = { name?: string; email?: string; picture?: string; _id?: string };
 
 type AuthContextType = {
@@ -71,6 +72,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    setLocationAuthToken(sessionToken ?? null);
+    setDeviceApiAuthToken(sessionToken ?? null);
+  }, [sessionToken]);
 
   // ===== WEB popup flow (unchanged) =====
   const signInWithGoogleWeb = async () => {
@@ -140,6 +146,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
     setUser(null);
     setSessionToken(null);
+    setLocationAuthToken(null);
+  setDeviceApiAuthToken(null);
     await deleteItem('vm_session');
   };
 
