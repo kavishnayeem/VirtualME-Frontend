@@ -1,4 +1,4 @@
-// app/VoiceCloneScreen.tsx
+// Web-voice-clone.tsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, Pressable, ActivityIndicator, Alert, Platform, TextInput, StyleSheet, ScrollView, Dimensions } from 'react-native';
 import * as FileSystem from 'expo-file-system';
@@ -6,35 +6,17 @@ import { Audio } from 'expo-av';
 import { useAuth } from '../../providers/AuthProvider';
 
 const SERVER_URL = 'https://virtual-me-backend.vercel.app';
+const AUTH_BASE = 'https://virtual-me-auth.vercel.app';
 
-const SAMPLE_TEXT = `
-English:
-Welcome to VirtualMe — your personal digital companion. 
-With VirtualMe, your voice becomes your presence, even when you are away. 
-It understands your schedule, shares updates with your loved ones, and speaks just like you. 
-Think of it as your trusted reflection, always ready to represent you with warmth and clarity.
-
-Hyderabadi Hindi/Urdu:
-آداب! یہ ہے VirtualMe — آپ کا اپنا ڈجیٹل ساتھی۔ 
-جب آپ مصروف رہتے ہیں، تو VirtualMe آپ کی جگہ بات کرتا ہے، 
-آپ کے گھر والوں کو حال چال بتاتا ہے، اور بالکل آپ ہی کے انداز میں جواب دیتا ہے۔ 
-سمجھو جیسے آپ کا اپنا影، جو ہر وقت آپ کے ساتھ ہے، اور آپ کی بات سب تک پہنچاتا ہے۔ 
-حیدرآباد کی گلیوں جیسا اپنائیت بھرا انداز، بس یہی ہے VirtualMe!
-
-Arabic (Surah Al-Fatiha):
-بِسْمِ اللَّهِ الرَّحْمَـٰنِ الرَّحِيمِ
-الْـحَمْدُ لِلَّهِ رَبِّ الْعَالَمِينَ
-الرَّحْمَـٰنِ الرَّحِيمِ
-مَالِكِ يَوْمِ الدِّينِ
-إِيَّاكَ نَعْبُدُ وَإِيَّاكَ نَسْتَعِينُ
-اهْدِنَا الصِّرَاطَ الْمُسْتَقِيمَ
-صِرَاطَ الَّذِينَ أَنْعَمْتَ عَلَيْهِمْ
-غَيْرِ الْمَغْضُوبِ عَلَيْهِمْ وَلَا الضَّالِّينَ
-آمِين
-`;
+const getSampleText = (userName?: string) => {
+  const name = userName || 'yourself';
+  return (
+    `Hello, my name is ${name}. I am excited to introduce you to VirtualMe, a platform designed to help you stay connected and present, even when you are busy. With VirtualMe, your voice can deliver messages, share updates, and interact with your friends and family just as you would. Imagine being able to send a warm greeting, remind your loved ones about important events, or simply check in, all in your own voice. This technology ensures that your unique tone and personality shine through every message. Whether you are at work, traveling, or simply taking a break, VirtualMe keeps you close to those who matter most. Experience the comfort of knowing that your presence is felt, your words are heard, and your relationships remain strong. Welcome to a new era of communication, where your voice truly represents you, anytime and anywhere.`
+  );
+};
 
 export default function VoiceCloneScreen() {
-  const { token } = useAuth();
+  const { token,user } = useAuth();
 
   // Always return a concrete object to satisfy TS's HeadersInit
   const authedHeaders = useMemo<Record<string, string>>(() => {
@@ -59,7 +41,33 @@ export default function VoiceCloneScreen() {
   const [recording, setRecording] = useState<Audio.Recording | null>(null);
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
   const [isPlayingRecording, setIsPlayingRecording] = useState(false);
-
+  const saveVoiceId = useCallback(async () => {
+    const id = (voiceIdInput || '').trim();
+    if (!id) return Alert.alert('Missing', 'Paste a voice ID first.');
+    if (!token) return Alert.alert('Sign in', 'Please sign in first.');
+  
+    try {
+      setBusy(true);
+      const resp = await fetch(`${AUTH_BASE}/me/voice-id`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...authedHeaders },
+        body: JSON.stringify({ voiceId: id }),
+      });
+      if (!resp.ok) {
+        const t = await resp.text();
+        throw new Error(`Save failed: ${resp.status} ${t}`);
+      }
+      const data = await resp.json();
+      setVoiceId(data.voiceId);            // keep local state in sync
+      Alert.alert('Saved', 'Voice ID updated in your profile.');
+    } catch (e: any) {
+      console.error(e);
+      Alert.alert('Error', e.message || 'Failed to save voice ID');
+    } finally {
+      setBusy(false);
+    }
+  }, [voiceIdInput, token, authedHeaders]);
+  
   // preload saved voiceId from backend
   const loadMyVoice = useCallback(async () => {
     if (!token) return; // not signed in
@@ -178,7 +186,7 @@ export default function VoiceCloneScreen() {
     const id = (voiceIdInput?.trim() || voiceId || '').trim();
     try {
       setBusy(true);
-      const body: any = { text: SAMPLE_TEXT };
+      const body: any = { text: getSampleText(user?.name) };
       // Only include voiceId if we actually have one; otherwise backend will use DEFAULT_VOICE_ID
       if (id) body.voiceId = id;
 
@@ -311,15 +319,12 @@ export default function VoiceCloneScreen() {
             autoCorrect={false}
           />
           <Pressable
-            disabled={!voiceIdInput || busy}
-            onPress={() => {
-              setVoiceId(voiceIdInput.trim());
-              Alert.alert('Voice set', 'Using pasted voice_id for synthesis.');
-            }}
-            style={[styles.btn, (!voiceIdInput || busy) ? styles.btnDisabled : styles.btnHollow]}
-          >
-            <Text style={styles.btnText}>Use This Voice ID</Text>
-          </Pressable>
+              disabled={!voiceIdInput || busy}
+              onPress={saveVoiceId}
+              style={[styles.btn, (!voiceIdInput || busy) ? styles.btnDisabled : styles.btnHollow]}
+            >
+              <Text style={styles.btnText}>Use This Voice ID</Text>
+            </Pressable>
 
           {/* Record & Clone */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 10 }}>

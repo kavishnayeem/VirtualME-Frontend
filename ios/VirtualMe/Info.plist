@@ -27,8 +27,8 @@
       <dict>
         <key>CFBundleURLSchemes</key>
         <array>
-          <string>VirtualMe</string>
-          <string>com.anonymous.virtualme</string>
+          <string>virtualme</string>
+          <string>com.kavishnayeem.virtualme</string>
         </array>
       </dict>
       <dict>
@@ -47,10 +47,10 @@
     <key>NSAppTransportSecurity</key>
     <dict>
       <key>NSAllowsArbitraryLoads</key>
-      <false/>
-      <key>NSAllowsLocalNetworking</key>
       <true/>
     </dict>
+    <key>NSFaceIDUsageDescription</key>
+    <string>Allow $(PRODUCT_NAME) to access your Face ID biometric data.</string>
     <key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
     <string>Allow VirtualMe to update your location in the background.</string>
     <key>NSLocationAlwaysUsageDescription</key>
@@ -67,6 +67,8 @@
     </array>
     <key>UIBackgroundModes</key>
     <array>
+      <string>location</string>
+      <string>remote-notification</string>
       <string>location</string>
       <string>remote-notification</string>
       <string>fetch</string>

@@ -1,48 +1,74 @@
-// utils/deviceId.ts
-import * as SecureStore from 'expo-secure-store';
-import * as Application from 'expo-application';
+// src/utils/deviceId.ts
 import { Platform } from 'react-native';
 
+let cached: string | null = null;
 const KEY = 'vm_device_id';
 
-function randomId() {
-  // Prefer cryptographic UUID if available
+function uuid(): string {
+  // Prefer crypto UUID if available
   // @ts-ignore
-  if (global?.crypto?.randomUUID) return global.crypto.randomUUID();
-  return `dev_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  if (typeof crypto !== 'undefined' && crypto?.randomUUID) return crypto.randomUUID();
+  const rnd = () =>
+    Math.floor((1 + Math.random()) * 0x10000).toString(16).slice(1);
+  // not a true v4, but fine as a fallback
+  return `${rnd()}${rnd()}-${rnd()}-${rnd()}-${rnd()}-${rnd()}${rnd()}${rnd()}`;
 }
 
 export async function ensureDeviceId(): Promise<string> {
-  // 1) If we already saved one, return it
-  try {
-    const existing = await SecureStore.getItemAsync(KEY);
-    if (existing && existing.trim()) return existing;
-  } catch {
-    // SecureStore can be unavailable on web; ignore and continue
-  }
+  if (cached) return cached;
 
-  // 2) Try a platform identifier (best-effort)
-  let base: string | null = null;
-  try {
-    if (Platform.OS === 'android') {
-      // androidId is a string | null (Android only)
-      base = (Application as any).androidId ?? null;
-    } else if (Platform.OS === 'ios' && typeof Application.getIosIdForVendorAsync === 'function') {
-      base = await Application.getIosIdForVendorAsync();
+  // ---------- WEB: persist to localStorage ----------
+  if (Platform.OS === 'web') {
+    const KEY_WEB = KEY; // "vm_device_id"
+    try {
+      const existing = window.localStorage.getItem(KEY_WEB);
+      if (existing && existing.trim()) {
+        cached = existing.trim();
+        return cached;
+      }
+      const id = uuid();
+      window.localStorage.setItem(KEY_WEB, id);
+      cached = id;
+      return cached;
+    } catch {
+      // localStorage blocked? At least keep it stable for this tab session.
+      cached = uuid();
+      return cached;
     }
-  } catch {
-    // ignore and fallback
   }
 
-  // 3) Fallback to a random ID if nothing else
-  const id = (typeof base === 'string' && base.trim().length >= 8) ? base.trim() : randomId();
-
-  // 4) Persist for future runs (best-effort)
+  // ---------- NATIVE: SecureStore → AsyncStorage ----------
   try {
-    await SecureStore.setItemAsync(KEY, id);
+    const SecureStore = await import('expo-secure-store');
+    const existing = await SecureStore.getItemAsync(KEY);
+    if (existing && existing.trim()) {
+      cached = existing.trim();
+      return cached;
+    }
+    const id = uuid();
+    try {
+      await SecureStore.setItemAsync(KEY, id);
+    } catch { /* fall back below */ }
+    cached = id;
+    return cached;
   } catch {
-    // On web / restricted envs, SecureStore may no-op; that's fine
+    // expo-secure-store not available (unlikely on native)
   }
 
-  return id;
+  try {
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+    const existing = await AsyncStorage.getItem(KEY);
+    if (existing && existing.trim()) {
+      cached = existing.trim();
+      return cached;
+    }
+    const id = uuid();
+    await AsyncStorage.setItem(KEY, id);
+    cached = id;
+    return cached;
+  } catch {
+    // Last resort: volatile in-memory ID (won't survive app restart)
+    cached = uuid();
+    return cached;
+  }
 }

@@ -1,4 +1,4 @@
-package com.anonymous.virtualme
+package com.kavishnayeem.virtualme
 
 import android.app.Application
 import android.content.res.Configuration

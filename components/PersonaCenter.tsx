@@ -3,7 +3,6 @@ import { ActivityIndicator, FlatList, Image, Modal, Platform, Pressable, StyleSh
 import { useAuth } from '../providers/AuthProvider';
 import { usePersonaTarget } from '../hooks/usePersonaTarget';
 import { fetchMeAndGranted, UserSummary } from '../lib/lobby';
-import { usePersonaResources } from '../hooks/usePersonaResources';
 
 export default function PersonaCenter({
   visible,
@@ -41,9 +40,6 @@ export default function PersonaCenter({
       (u.email ?? '').toLowerCase().includes(needle)
     );
   }, [rows, q]);
-
-  // live resources for currently selected target
-  const { userId, location, events, loading: loadingRes } = usePersonaResources({ agendaLimit: 3 });
 
   const headline = target?.name || target?.email || (me?.name ? `Me (${me.name})` : 'Me');
 
@@ -99,46 +95,14 @@ export default function PersonaCenter({
             />
           )}
 
-          {/* Live persona details */}
+          {/* Only show the selected persona, not location/events */}
           <View style={S.card}>
             <Text style={S.cardTitle}>Acting For</Text>
             <Text style={S.headline}>{headline}</Text>
-
-            <View style={S.split}>
-              <View style={{ flex: 1 }}>
-                <Text style={S.section}>Location</Text>
-                {loadingRes ? (
-                  <Text style={S.dim}>Loading…</Text>
-                ) : location ? (
-                  <>
-                    <Text style={S.value}>{location.label ?? `${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}`}</Text>
-                    {!!location.when && <Text style={S.dim}>Updated: {new Date(location.when).toLocaleString()}</Text>}
-                  </>
-                ) : <Text style={S.dim}>No recent location</Text>}
-              </View>
-              <View style={{ width: 16 }} />
-              <View style={{ flex: 1 }}>
-                <Text style={S.section}>Next Events</Text>
-                {loadingRes ? (
-                  <Text style={S.dim}>Loading…</Text>
-                ) : Array.isArray(events) && events.length ? (
-                  events.slice(0, 3).map((e) => (
-                    <View key={e.id} style={{ marginBottom: 6 }}>
-                      <Text style={S.value}>{e.title}</Text>
-                      <Text style={S.dim}>
-                        {new Date(e.start).toLocaleString()}
-                        {e.location ? ` · ${e.location}` : ''}
-                      </Text>
-                    </View>
-                  ))
-                ) : <Text style={S.dim}>No upcoming events</Text>}
-              </View>
-            </View>
-
             <View style={S.footer}>
               <Pressable
-                style={[S.primaryBtn, !userId && { opacity: 0.5 }]}
-                disabled={!userId}
+                style={[S.primaryBtn, !target && { opacity: 0.5 }]}
+                disabled={!target}
                 onPress={onClose}
               >
                 <Text style={S.primaryText}>Use this persona in Orb</Text>

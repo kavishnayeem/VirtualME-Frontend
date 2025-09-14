@@ -19,10 +19,15 @@
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Allow VirtualMe to update your location in the background.",
         "UIBackgroundModes": [
           "location",
+          "remote-notification",
+          "location",
           "remote-notification"
         ],
-        "NSAppTransportSecurity": { "NSAllowsArbitraryLoads": true }
-      }
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      },
+      "bundleIdentifier": "com.kavishnayeem.virtualme"
     },
     "android": {
       "adaptiveIcon": {
@@ -33,8 +38,15 @@
         {
           "action": "VIEW",
           "autoVerify": false,
-          "data": [{ "scheme": "virtualme" }],  
-          "category": ["BROWSABLE", "DEFAULT"]
+          "data": [
+            {
+              "scheme": "virtualme"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ],
       "permissions": [
@@ -42,12 +54,17 @@
         "ACCESS_FINE_LOCATION",
         "ACCESS_BACKGROUND_LOCATION",
         "FOREGROUND_SERVICE",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
       ],
       "edgeToEdgeEnabled": true,
       "package": "com.kavishnayeem.virtualme",
       "usesCleartextTraffic": true
-      
     },
     "web": {
       "bundler": "metro",
@@ -61,7 +78,6 @@
         }
       }
     },
-    
     "plugins": [
       "expo-router",
       "@react-native-google-signin/google-signin",

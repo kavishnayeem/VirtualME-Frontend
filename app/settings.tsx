@@ -2,10 +2,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { View, Text, Switch, Alert, StyleSheet, Platform, TextInput, Pressable, ActivityIndicator } from 'react-native';
 import * as Device from 'expo-device';
-import { enableBackgroundLocation, disableBackgroundLocation } from '../services/location-bg';
+
+import { enableBackgroundLocation, disableBackgroundLocation, forcePushNow } from '../services/location-bg';
 import { ensureDeviceId } from '../utils/deviceId';
 import { registerThisDevice, fetchMyDevice, setDeviceSharing } from '../services/deviceApi';
-import { forcePushNow } from '../services/location-bg';
+import { setDeviceApiAuthToken } from '../services/deviceApi';
+import { setLocationAuthToken } from '../services/location-bg';
+import { useAuth } from '../providers/AuthProvider';
 
 type DeviceRecord = {
   id: string;
@@ -23,45 +26,45 @@ export default function SettingsScreen() {
   const [deviceId, setDeviceId] = useState<string>('');
   const [record, setRecord] = useState<DeviceRecord | null>(null);
   const [label, setLabel] = useState<string>('');
+  const [minutes, setMinutes] = useState<number>(60); // background cadence
+  const { token } = useAuth?.() ?? ({ token: undefined } as any);
   const sharing = !!record?.sharing;
 
-  // Permission banner (we don’t import expo-location here to keep this screen light;
-  // we trust enableBackgroundLocation()/disableBackgroundLocation() to request/tear down)
   const needsNative = useMemo(() => Platform.OS !== 'web', []);
   const platformModel = useMemo(
     () => (Device.manufacturer || '') + (Device.modelName ? ` ${Device.modelName}` : ''),
     []
   );
-
-  // Initial boot: ensure we have a local deviceId and try to fetch its server record
   useEffect(() => {
+    if (token) {
+      setDeviceApiAuthToken(token);
+      setLocationAuthToken(token);
+    } else {
+      setDeviceApiAuthToken(null);
+      setLocationAuthToken(null);
+    }
+  }, [token]);
+
+  useEffect(() => {
+    if (!token) return; // wait until token is ready
     (async () => {
       setLoading(true);
       try {
         const id = await ensureDeviceId();
         setDeviceId(id);
-
-        // ask backend whether this id exists & its sharing state
         const rec = await fetchMyDevice(id);
-        if (rec) {
-          setRecord(rec);
-          setLabel(rec.label || '');
-        } else {
-          // not registered yet: prefill a friendly default label
-          const defaultLabel =
-            Platform.OS === 'ios' ? 'My iPhone' :
-            Platform.OS === 'android' ? 'My Android' :
-            'My Browser';
-          setLabel(defaultLabel);
+        if (rec) { setRecord(rec); setLabel(rec.label || ''); }
+        else {
+          setLabel(Platform.OS === 'ios' ? 'My iPhone' :
+                   Platform.OS === 'android' ? 'My Android' : 'My Browser');
         }
       } catch (e: any) {
-        // don’t block the screen; user can still toggle which will register
         console.warn('Settings init error:', e?.message || e);
       } finally {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [token]);
 
   const onRegister = useCallback(async () => {
     if (!needsNative && !label.trim()) {
@@ -91,7 +94,7 @@ export default function SettingsScreen() {
     if (busy) return;
     setBusy(true);
     try {
-      // Ensure device exists in backend before we try to flip sharing
+      // Ensure server record exists before flipping sharing
       let rec = record;
       if (!rec) {
         const id = deviceId || (await ensureDeviceId());
@@ -105,24 +108,37 @@ export default function SettingsScreen() {
       }
 
       if (next) {
-        // This will (a) ask OS permission if needed, (b) start the background task
-        await enableBackgroundLocation();
+        await enableBackgroundLocation({ minutes });
+        try { await forcePushNow('settings-toggle'); } catch {}
       } else {
         await disableBackgroundLocation();
       }
-      if (next) {
-        try { await forcePushNow('settings-toggle'); } catch {}
-      }
-      
-      // Tell backend our intent for this device
+
       const updated = await setDeviceSharing(rec!.id, next);
       setRecord(updated);
+
+      if (Platform.OS === 'android' && next) {
+        Alert.alert('Tip (Android)', 'For best results, set Battery → Unrestricted for VirtualMe.');
+      }
     } catch (e: any) {
       Alert.alert('Location', e?.message ?? 'Failed to update location sharing');
     } finally {
       setBusy(false);
     }
-  }, [busy, record, deviceId, label, platformModel]);
+  }, [busy, record, deviceId, label, platformModel, minutes]);
+
+  const onPushNow = useCallback(async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await forcePushNow('manual-button');
+      Alert.alert('Location', 'Pushed current/last known location.');
+    } catch (e: any) {
+      Alert.alert('Location', e?.message ?? 'Push failed');
+    } finally {
+      setBusy(false);
+    }
+  }, [busy]);
 
   if (loading) {
     return (
@@ -150,37 +166,50 @@ export default function SettingsScreen() {
             <TextInput
               value={label}
               onChangeText={setLabel}
-              placeholder="e.g., Kavish’s iPhone"
+              placeholder="e.g., Kavish’s Android"
               placeholderTextColor="#777"
               style={styles.input}
             />
           </View>
         </View>
 
-        <Pressable
-          onPress={onRegister}
-          disabled={busy}
-          style={[styles.button, busy && styles.buttonDisabled]}
-        >
+        <Pressable onPress={onRegister} disabled={busy} style={[styles.button, busy && styles.buttonDisabled]}>
           <Text style={styles.buttonText}>{record ? 'Update' : 'Register'}</Text>
         </Pressable>
       </View>
 
-      {/* Location sharing toggle */}
+      {/* Location sharing */}
       <View style={styles.card}>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, gap: 8 }}>
           <Text style={styles.cardTitle}>Share my location</Text>
           <Text style={styles.cardSub}>
-            Link this device to your account and update your location in the background so the Orb can answer
-            “Where are you?” correctly for the selected persona. You can turn this off anytime.
+            Updates run in the background so the Orb can answer “Where are you?” for the selected persona.
           </Text>
           {record?.lastSeenAt ? (
-            <Text style={[styles.cardSub, { marginTop: 8 }]}>
+            <Text style={[styles.cardSub, { marginTop: 4 }]}>
               Last sync: {new Date(record.lastSeenAt).toLocaleString()}
             </Text>
           ) : null}
+          <Text style={[styles.inputLabel, { marginTop: 8 }]}>Background cadence (minutes)</Text>
+          <TextInput
+            value={String(minutes)}
+            onChangeText={(t) => setMinutes(Math.max(1, Number.parseInt(t || '60', 10) || 60))}
+            keyboardType="number-pad"
+            style={[styles.input, { width: 120 }]}
+          />
         </View>
         <Switch value={sharing} onValueChange={onToggleShare} disabled={busy} />
+      </View>
+
+      {/* Debug actions */}
+      <View style={[styles.card, { justifyContent: 'space-between' }]}>
+        <View>
+          <Text style={styles.cardTitle}>Debug</Text>
+          <Text style={styles.cardSub}>Send an immediate update using current or last known location.</Text>
+        </View>
+        <Pressable onPress={onPushNow} disabled={busy} style={[styles.button, busy && styles.buttonDisabled]}>
+          <Text style={styles.buttonText}>Push now</Text>
+        </Pressable>
       </View>
 
       {Platform.OS !== 'web' ? (
@@ -189,7 +218,7 @@ export default function SettingsScreen() {
         </Text>
       ) : (
         <Text style={styles.note}>
-          Background location is limited on web; toggle will affect server intent but won’t start a native task.
+          Background location is limited on web; toggle affects server intent but won’t start a native task.
         </Text>
       )}
     </View>
@@ -210,7 +239,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   cardTitle: { fontSize: 16, fontWeight: '600', marginBottom: 6, color: '#fff' },
-  cardSub: { color: '#aaa' },
+  cardSub: { color: '#aaa', maxWidth: 560 },
   inputLabel: { color: '#ddd', marginBottom: 6, fontSize: 12 },
   input: {
     padding: 12,
