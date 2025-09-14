@@ -22,6 +22,8 @@ type Props = {
 const BACKEND_URL = 'https://virtual-me-voice-agent.vercel.app'; // <-- change to your LAN IP or tunnel URL
 const ORB_RADIUS = 7; // Keep orb radius constant
 
+const DEFAULT_PUBLIC_TARGET_USER_ID = '68b8f4f19bf7aa5349b71b70'; 
+const DEFAULT_PUBLIC_VOICE_ID = '8WGkRzOA8ctbz8pu804L';  
 // Persisted conversation id so calls thread together
 const CONVO_KEY = 'vm_conversation_id';
 
@@ -64,6 +66,11 @@ const Web3DOrb: React.FC<Props> = ({
   const targetLabel = target ? (target.name?.trim() || target.email) : null; // 🔹 NEW
   const { token } = useAuth?.() ?? ({ token: undefined } as any);
 
+  const effectiveTargetUserId =
+  token ? (targetUserId || undefined) : (DEFAULT_PUBLIC_TARGET_USER_ID || undefined);
+
+  const effectiveVoiceId =
+    voiceId || (!token ? DEFAULT_PUBLIC_VOICE_ID : undefined);
   const [isListening, setIsListening] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
   const [currentVolume, setCurrentVolume] = useState(0);
@@ -355,14 +362,16 @@ const Web3DOrb: React.FC<Props> = ({
             formData.append('conversationId', cid);
             formData.append('profileName', profileName);
             formData.append('preferredName', preferredName);
-            if (targetUserId) formData.append('targetUserId', String(targetUserId)); // 🔹 NEW
+            if (effectiveTargetUserId) formData.append('targetUserId', String(effectiveTargetUserId));
             if (token) formData.append('authToken', token);
-            if (voiceId) formData.append('voiceId', voiceId);
+            if (effectiveVoiceId) formData.append('voiceId', effectiveVoiceId);
             if (hints) formData.append('hints', hints);
+
+            const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
 
             const resp = await fetch(`${BACKEND_URL}/voice`, {
               method: 'POST',
-              headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+              headers,
               body: formData,
             });
 

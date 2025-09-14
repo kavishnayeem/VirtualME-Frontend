@@ -35,6 +35,14 @@ export default function SettingsScreen() {
     () => (Device.manufacturer || '') + (Device.modelName ? ` ${Device.modelName}` : ''),
     []
   );
+  if (!token) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <Text style={{ color: '#fff', fontSize: 16, marginBottom: 10 }}>Sign in required</Text>
+        
+      </View>
+    );
+  }
   useEffect(() => {
     if (token) {
       setDeviceApiAuthToken(token);
@@ -201,16 +209,6 @@ export default function SettingsScreen() {
         <Switch value={sharing} onValueChange={onToggleShare} disabled={busy} />
       </View>
 
-      {/* Debug actions */}
-      <View style={[styles.card, { justifyContent: 'space-between' }]}>
-        <View>
-          <Text style={styles.cardTitle}>Debug</Text>
-          <Text style={styles.cardSub}>Send an immediate update using current or last known location.</Text>
-        </View>
-        <Pressable onPress={onPushNow} disabled={busy} style={[styles.button, busy && styles.buttonDisabled]}>
-          <Text style={styles.buttonText}>Push now</Text>
-        </Pressable>
-      </View>
 
       {Platform.OS !== 'web' ? (
         <Text style={styles.note}>

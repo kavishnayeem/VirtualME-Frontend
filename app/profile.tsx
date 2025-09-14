@@ -183,10 +183,18 @@ export default function ProfileScreen() {
               <ThemedText style={{ opacity: 0.6, fontSize: 12, marginTop: 4 }}>ID: {me._id}</ThemedText>
             )}
           </View>
-          <Pressable style={[styles.btnSm, styles.btnSecondary]} onPress={signOut}>
-            <ThemedText style={{ color: 'black' }}>Sign out</ThemedText>
-          </Pressable>
+          
+          {Platform.OS === 'web' && (
+            <Pressable style={[styles.btnSm, styles.btnSecondary]} onPress={signOut}>
+              <ThemedText style={{ color: 'black' }}>Sign out</ThemedText>
+            </Pressable>
+          )}
         </View>
+        {Platform.OS !== 'web' && (
+            <Pressable style={[styles.btnSm, styles.btnSecondary]} onPress={signOut}>
+              <ThemedText style={{ color: 'black' }}>Sign out</ThemedText>
+            </Pressable>
+          )}
       </View>
 
       <ScrollView contentContainerStyle={{ paddingBottom: 48 }}>

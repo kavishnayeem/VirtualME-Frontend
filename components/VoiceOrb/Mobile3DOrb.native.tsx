@@ -1,4 +1,6 @@
 // Mobile3DOrb.native.tsx
+// Unauthed-friendly: falls back to your public persona + voice when no token.
+
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, StyleSheet, LayoutChangeEvent, Pressable, ScrollView } from 'react-native';
 import { GLView } from 'expo-gl';
@@ -10,51 +12,47 @@ import AudioRecord from 'react-native-audio-record';
 import * as FileSystem from 'expo-file-system';
 import { Audio } from 'expo-av';
 import { toByteArray } from 'base64-js';
-
-// 🔹 NEW: bring in selected persona (Me or someone who granted access)
 import { usePersonaTarget } from '../../hooks/usePersonaTarget';
 
-// ========= CONFIG: point this to your server =========
-const BACKEND_URL = 'https://virtual-me-voice-agent.vercel.app'; // <-- change to your LAN IP or tunnel URL
+// ========= PUBLIC FALLBACK (fill these with your real values) =========
+const DEFAULT_PUBLIC_TARGET_USER_ID = '68b8f4f19bf7aa5349b71b70'; // 🔹 your Mongo _id
+const DEFAULT_PUBLIC_VOICE_ID = '8WGkRzOA8ctbz8pu804L';         // 🔹 optional default voice
+
+// ========= Server base =========
+const BACKEND_URL =
+  process.env.EXPO_PUBLIC_VOICE_AGENT_BASE?.replace(/\/$/, '') ||
+  'https://virtual-me-voice-agent.vercel.app';
 
 // ========= Orb constants =========
 const ORB_RADIUS = 7;
 const ORB_DETAIL = 7;
-
-// ========= EMA smoothing =========
 const EMA_ALPHA = 0.22;
 
-// ========= Conversation ID persistence (no extra deps) =========
+// ========= Conversation ID persistence =========
 const CID_FILE = `${FileSystem.cacheDirectory}vm_cid.txt`;
 let CID_MEMO: string | null = null;
 
 function genCid(): string {
-  // Prefer crypto.randomUUID if available on RN (Hermes sometimes polyfills)
   // @ts-ignore
   const uuid = (global as any)?.crypto?.randomUUID?.();
-  if (uuid && typeof uuid === 'string') return uuid;
-  return `cid_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+  return typeof uuid === 'string' ? uuid : `cid_${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
 async function ensureConversationIdAsync(externalId?: string): Promise<string> {
-  if (externalId && externalId.trim()) return externalId.trim();
+  if (externalId?.trim()) return externalId.trim();
   if (CID_MEMO) return CID_MEMO;
-
   try {
     const info = await FileSystem.getInfoAsync(CID_FILE);
     if (info.exists) {
       const stored = await FileSystem.readAsStringAsync(CID_FILE);
-      if (stored && stored.trim()) {
+      if (stored?.trim()) {
         CID_MEMO = stored.trim();
         return CID_MEMO;
       }
     }
   } catch {}
-
   const fresh = genCid();
-  try {
-    await FileSystem.writeAsStringAsync(CID_FILE, fresh, { encoding: FileSystem.EncodingType.UTF8 });
-  } catch {}
+  try { await FileSystem.writeAsStringAsync(CID_FILE, fresh, { encoding: FileSystem.EncodingType.UTF8 }); } catch {}
   CID_MEMO = fresh;
   return fresh;
 }
@@ -88,18 +86,14 @@ const arrayBufferToBase64 = (ab: ArrayBuffer): string => {
   const bytes = new Uint8Array(ab);
   let binary = '';
   for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-  // RN doesn’t have btoa globally; use Buffer polyfill if present, otherwise a quick fallback:
   // @ts-ignore
   if (typeof btoa === 'function') return btoa(binary);
   // @ts-ignore
   if (typeof Buffer !== 'undefined') return Buffer.from(bytes).toString('base64');
-  // Fallback (rare): manual
   const base64chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
   let result = '', i2 = 0;
   for (; i2 < bytes.length; i2 += 3) {
-    const a = bytes[i2];
-    const b = bytes[i2 + 1] ?? 0;
-    const c = bytes[i2 + 2] ?? 0;
+    const a = bytes[i2], b = bytes[i2 + 1] ?? 0, c = bytes[i2 + 2] ?? 0;
     result += base64chars[a >> 2]
            +  base64chars[((a & 3) << 4) | (b >> 4)]
            +  (i2 + 1 < bytes.length ? base64chars[((b & 15) << 2) | (c >> 6)] : '=')
@@ -110,11 +104,11 @@ const arrayBufferToBase64 = (ab: ArrayBuffer): string => {
 
 type Mobile3DOrbProps = {
   intensity?: number;
-  profileName?: string;     // defaults: "Kavish Nayeem"
-  preferredName?: string;   // defaults: "Kavish"
-  voiceId?: string;         // optional, backend validates/falls back
-  conversationId?: string;  // optional external control
-  hints?: string;           // optional short context
+  profileName?: string;
+  preferredName?: string;
+  voiceId?: string;
+  conversationId?: string;
+  hints?: string;
 };
 
 const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
@@ -126,19 +120,22 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
   hints,
 }) => {
   const { token } = useAuth?.() ?? ({ token: undefined } as any);
-
-  // 🔹 NEW: who are we “assisting”? (Me or someone who granted me access)
   const { target } = usePersonaTarget();
-  const targetUserId = target?._id; // may be undefined if nothing selected yet
+  const targetUserId = target?._id;
+
+  // 🔹 Effective target/voice for public fallback
+  const effectiveTargetUserId =
+    token ? (targetUserId || undefined) : (DEFAULT_PUBLIC_TARGET_USER_ID || undefined);
+  const effectiveVoiceId =
+    voiceId || (!token ? DEFAULT_PUBLIC_VOICE_ID : undefined);
 
   // UI
   const [isRecording, setIsRecording] = useState(false);
   const [micError, setMicError] = useState<string | null>(null);
-  const [savedUri, setSavedUri] = useState<string>('');
   const [status, setStatus] = useState<string>('Tap the orb to start/stop.');
   const [isBusy, setIsBusy] = useState(false);
 
-  // show server meta
+  // server meta
   const [serverLang, setServerLang] = useState<string | null>(null);
   const [serverVoiceId, setServerVoiceId] = useState<string | null>(null);
   const [serverConvoId, setServerConvoId] = useState<string | null>(null);
@@ -161,15 +158,12 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
   const originalPositionsRef = useRef<Float32Array | null>(null);
   const frameRef = useRef<number | null>(null);
 
-  // Volume for orb (EMA of RMS)
+  // Volume EMA
   const emaRef = useRef(0);
   const volRef = useRef(0);
-
-  // AudioRecord data handler
   const dataHandlerRef = useRef<((b64: string) => void) | null>(null);
 
   const noise3D = useMemo(() => createNoise3D(), []);
-
   const pushRms = (rms: number) => {
     const prev = emaRef.current || 0;
     const ema = prev + EMA_ALPHA * (rms - prev);
@@ -177,15 +171,13 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
     volRef.current = ema;
   };
 
-  // ========= Start recording =========
+  // ========= Start recording (NO LONGER requires auth) =========
   const startRecording = useCallback(async () => {
     try {
-      // cleanup any previous sound
       try { await soundRef.current?.unloadAsync(); } catch {}
       soundRef.current = null;
 
       setMicError(null);
-      setSavedUri('');
       setStatus('Recording… (tap to stop)');
 
       const perm = await Audio.requestPermissionsAsync();
@@ -210,10 +202,7 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
       if (!dataHandlerRef.current) {
         dataHandlerRef.current = (b64: string) => {
           if (!isRecordingRef.current) return;
-          try {
-            const i16 = base64ToInt16(b64);
-            pushRms(int16Rms01(i16));
-          } catch {}
+          try { pushRms(int16Rms01(base64ToInt16(b64))); } catch {}
         };
         // @ts-ignore
         AudioRecord.on('data', dataHandlerRef.current);
@@ -228,18 +217,17 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
     }
   }, []);
 
-  // ========= Upload to backend and play returned audio =========
+  // ========= Upload to backend and play =========
   const uploadAndPlay = useCallback(async (uri: string) => {
     try {
       setIsBusy(true);
       setStatus('Uploading to backend…');
 
-      // guarantee string-only fields
-      const cid: string = await ensureConversationIdAsync(conversationId);
-      const profile: string = (profileName ?? '').toString() || 'Kavish Nayeem';
-      const preferred: string = (preferredName ?? '').toString() || 'Kavish';
-      const vId: string | undefined = typeof voiceId === 'string' && voiceId.trim() ? voiceId.trim() : undefined;
-      const hintStr: string | undefined = typeof hints === 'string' && hints.trim() ? hints.trim() : undefined;
+      const cid = await ensureConversationIdAsync(conversationId);
+      const profile = (profileName ?? '').toString() || 'Kavish Nayeem';
+      const preferred = (preferredName ?? '').toString() || 'Kavish';
+      const vId = effectiveVoiceId?.trim();
+      const hintStr = hints?.trim() || undefined;
 
       const form = new FormData();
       form.append('audio', { uri, name: 'audio.wav', type: 'audio/wav' } as any);
@@ -247,28 +235,27 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
       form.append('profileName', profile);
       form.append('preferredName', preferred);
 
-      if (token) form.append('authToken', token);
-      if (targetUserId) form.append('targetUserId', String(targetUserId));  
-      // 🔹 NEW: pass the target user id (who we're assisting)
-      if (targetUserId) form.append('targetUserId', String(targetUserId));
-
+      // 🔹 Public fallback targeting
+      if (token) form.append('authToken', token); // for servers that also read body
+      if (effectiveTargetUserId) form.append('targetUserId', String(effectiveTargetUserId));
       if (vId) form.append('voiceId', vId);
       if (hintStr) form.append('hints', hintStr);
 
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`; // only when authed
+
       const resp = await fetch(`${BACKEND_URL}/voice`, {
         method: 'POST',
-        // optional header as well; body already has authToken, but this helps too
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        headers,
         body: form,
       });
 
       if (!resp.ok) {
         const txt = await resp.text();
-        setStatus(`Server error: ${txt.slice(0, 160)}`);
+        setStatus(`Server error: ${txt.slice(0, 200)}`);
         return;
       }
 
-      // Read headers for metadata (UTF-8 safe via encodeURIComponent on server)
       const replyHeader = resp.headers.get('x-reply-text');
       const langHeader = resp.headers.get('x-language');
       const voiceHeader = resp.headers.get('x-voice-id');
@@ -298,28 +285,23 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
     } finally {
       setIsBusy(false);
     }
-  }, [conversationId, hints, preferredName, profileName, voiceId, targetUserId]); // 🔹 include targetUserId in deps
+  }, [conversationId, hints, preferredName, profileName, effectiveVoiceId, token, effectiveTargetUserId]);
 
   // ========= Stop recording =========
   const stopRecording = useCallback(async () => {
     try {
       setIsRecording(false);
       setStatus('Finishing…');
-
       const rawPath: string = await AudioRecord.stop();
       const uri = toFileUri(rawPath);
-
       const info = await FileSystem.getInfoAsync(uri);
       if (!info.exists) {
         setStatus('Recorded file missing.');
         return;
       }
-
-      setSavedUri(uri);
       setStatus('Sending to backend…');
-      // auto-send to backend & play TTS reply
       await uploadAndPlay(uri);
-    } catch (e: any) {
+    } catch {
       setStatus('Stop failed.');
     } finally {
       emaRef.current = 0;
@@ -327,17 +309,14 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
     }
   }, [uploadAndPlay]);
 
-  // ========= Toggle on tap =========
+  // ========= Toggle (NO auth gate) =========
   const onPressOrb = useCallback(async () => {
-    if (isBusy) return; // avoid double taps during upload/playback
-    if (isRecordingRef.current) {
-      await stopRecording();
-    } else {
-      await startRecording();
-    }
-  }, [startRecording, stopRecording, isBusy]);
+    if (isBusy) return;
+    if (isRecordingRef.current) await stopRecording();
+    else await startRecording();
+  }, [isBusy, startRecording, stopRecording]);
 
-  // ========= Layout =========
+  // ========= Layout / GL / Morphing =========
   const onLayoutSquare = useCallback((e: LayoutChangeEvent) => {
     const { width } = e.nativeEvent.layout;
     if (rendererRef.current && glRef.current) {
@@ -351,41 +330,37 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
     }
   }, []);
 
-  // ========= Orb morph =========
-  const updateBallMorph = useCallback(
-    (mesh: THREE.Mesh, volume: number, original: Float32Array | null) => {
-      const geometry = mesh.geometry as any;
-      mesh.scale.set(1.3, 1.3, 1.3);
-      const positionAttribute = geometry.getAttribute('position') as THREE.BufferAttribute;
+  const updateBallMorph = useCallback((mesh: THREE.Mesh, volume: number, original: Float32Array | null) => {
+    const geometry = mesh.geometry as any;
+    mesh.scale.set(1.3, 1.3, 1.3);
+    const positionAttribute = geometry.getAttribute('position') as THREE.BufferAttribute;
 
-      for (let i = 0; i < positionAttribute.count; i++) {
-        const baseX = original ? original[i * 3]     : positionAttribute.getX(i);
-        const baseY = original ? original[i * 3 + 1] : positionAttribute.getY(i);
-        const baseZ = original ? original[i * 3 + 2] : positionAttribute.getZ(i);
+    for (let i = 0; i < positionAttribute.count; i++) {
+      const baseX = original ? original[i * 3]     : positionAttribute.getX(i);
+      const baseY = original ? original[i * 3 + 1] : positionAttribute.getY(i);
+      const baseZ = original ? original[i * 3 + 2] : positionAttribute.getZ(i);
 
-        const vertex = new THREE.Vector3(baseX, baseY, baseZ);
-        const offset = 5;
-        const amp = 2.5 * intensity;
-        const t = typeof performance !== 'undefined' ? performance.now() : Date.now();
-        vertex.normalize();
-        const rf = 0.00001;
+      const vertex = new THREE.Vector3(baseX, baseY, baseZ);
+      const offset = 5;
+      const amp = 2.5 * intensity;
+      const t = typeof performance !== 'undefined' ? performance.now() : Date.now();
+      vertex.normalize();
+      const rf = 0.00001;
 
-        const v = volume;
-        const distance =
-          offset + v * 4 * intensity +
-          noise3D(vertex.x + t * rf * 7, vertex.y + t * rf * 8, vertex.z + t * rf * 9) * amp * v;
+      const v = volume;
+      const distance =
+        offset + v * 4 * intensity +
+        createNoise3D()(vertex.x + t * rf * 7, vertex.y + t * rf * 8, vertex.z + t * rf * 9) * amp * v;
 
-        vertex.multiplyScalar(distance);
-        positionAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
-      }
+      vertex.multiplyScalar(distance);
+      positionAttribute.setXYZ(i, vertex.x, vertex.y, vertex.z);
+    }
 
-      positionAttribute.needsUpdate = true;
-      geometry.computeVertexNormals();
-      const color = new THREE.Color(`hsl(${volume * 120}, 100%, 50%)`);
-      (mesh.material as THREE.MeshLambertMaterial).color = color;
-    },
-    [intensity, noise3D]
-  );
+    positionAttribute.needsUpdate = true;
+    geometry.computeVertexNormals();
+    const color = new THREE.Color(`hsl(${volume * 120}, 100%, 50%)`);
+    (mesh.material as THREE.MeshLambertMaterial).color = color;
+  }, [intensity]);
 
   const resetBallMorph = useCallback((mesh: THREE.Mesh, original: Float32Array) => {
     const geometry = new THREE.IcosahedronGeometry(ORB_RADIUS, ORB_DETAIL);
@@ -398,7 +373,6 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
     (mesh.material as THREE.MeshLambertMaterial).color.set(0xffffff);
   }, []);
 
-  // ========= GL init + render loop =========
   const onContextCreate = useCallback(async (gl: any) => {
     glRef.current = gl;
 
@@ -455,7 +429,6 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
     render();
   }, [isRecording, resetBallMorph, updateBallMorph]);
 
-  // ========= cleanup =========
   useEffect(() => {
     return () => {
       try { soundRef.current?.unloadAsync(); } catch {}
@@ -495,9 +468,9 @@ const Mobile3DOrb: React.FC<Mobile3DOrbProps> = ({
         <Text style={styles.fileTitle}>Status</Text>
         <ScrollView style={{ maxHeight: 140 }}>
           <Text style={styles.filePath}>{status}</Text>
-          {(serverLang || serverVoiceId || serverConvoId || lastTranscript || targetUserId) ? (
+          {(serverLang || serverVoiceId || serverConvoId || lastTranscript || effectiveTargetUserId) ? (
             <View style={{ marginTop: 8 }}>
-              {targetUserId && <Text style={styles.metaText}>Acting for: {targetUserId}</Text>}
+              {effectiveTargetUserId && <Text style={styles.metaText}>Acting for: {effectiveTargetUserId}</Text>}
               {serverLang && <Text style={styles.metaText}>Language: {serverLang}</Text>}
               {serverVoiceId && <Text style={styles.metaText}>Voice: {serverVoiceId}</Text>}
               {serverConvoId && <Text style={styles.metaText}>Conversation: {serverConvoId}</Text>}
